@@ -1,0 +1,8 @@
+{
+  "name": "Maritime AI Commander",
+  "description": "A production-grade maritime voice assistant with 3D visualization, domain-specific knowledge orchestration, and multi-modal asset generation (Images, Video, Graphs).",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
