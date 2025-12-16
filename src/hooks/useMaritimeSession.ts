@@ -71,9 +71,14 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
       source.connect(ctx.destination);
     }
     
+    // SCHEDULING LOGIC FIX:
+    // macOS/iOS clocks drift from the accumulated duration.
+    // If nextStartTime is in the past, we reset to currentTime to avoid "catch up" speed-ups or gaps.
+    // We add a tiny offset (0.005s) to ensure we don't schedule in the immediate past which causes sample cuts.
     const currentTime = ctx.currentTime;
+    
     if (nextStartTimeRef.current < currentTime) {
-        nextStartTimeRef.current = currentTime + 0.01; 
+        nextStartTimeRef.current = currentTime + 0.005;
     }
     
     source.start(nextStartTimeRef.current);

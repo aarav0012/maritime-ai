@@ -63,6 +63,13 @@ export interface ChartDataPoint {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
+      primitive: any;
+      mesh: any;
+      ringGeometry: any;
+      meshStandardMaterial: any;
+      ambientLight: any;
+      spotLight: any;
+      pointLight: any;
       [elemName: string]: any;
     }
   }

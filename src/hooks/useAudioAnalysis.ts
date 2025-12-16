@@ -30,7 +30,10 @@ export function useAudioAnalysis() {
 
   const ensureAudioContext = async () => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      // FIX: Removed { sampleRate: 24000 }. 
+      // Letting the browser pick the native hardware rate (e.g. 44.1k or 48k) prevents 
+      // severe audio artifacts and glitches on macOS/iOS WebKit.
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
     
     if (!analyserRef.current) {
