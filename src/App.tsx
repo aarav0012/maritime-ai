@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Avatar3D } from './components/Avatar3D';
 import { AssetDisplay } from './components/AssetDisplay';
 import { AdminPanel } from './components/AdminPanel';
@@ -38,7 +38,7 @@ export default function App() {
   // --- CUSTOM HOOKS ---
   const { audioContextRef, analyserRef, audioLevelRef, ensureAudioContext } = useAudioAnalysis();
   const { 
-    messages, setMessages, addMessage, connectionState, userIsSpeaking, isSpeaking, startSession, stopSession 
+    messages, addMessage, connectionState, userIsSpeaking, isSpeaking, startSession, stopSession 
   } = useMaritimeSession({ audioContextRef, analyserRef, ensureAudioContext });
   
   const { 

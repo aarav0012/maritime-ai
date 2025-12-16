@@ -36,7 +36,7 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
     });
   }, [scene]);
 
-  useFrame((stateCtx, delta) => {
+  useFrame((stateCtx) => {
     const t = stateCtx.clock.elapsedTime;
     const level = audioLevelRef?.current || 0;
     
