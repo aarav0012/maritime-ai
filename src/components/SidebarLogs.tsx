@@ -11,7 +11,7 @@ interface SidebarLogsProps {
   explanatoryMode: boolean;
   isProcessing: boolean;
   assetQueueLength: number;
-  proposedAsset: { type: string, description: string } | null;
+  proposedAsset: { type: string, description: string, reason: 'user_request' | 'system_suggestion' | 'none' } | null;
   
   onToggleRag: () => void;
   onToggleExplanatory: () => void;
@@ -123,20 +123,36 @@ export const SidebarLogs: React.FC<SidebarLogsProps> = ({
 
       {/* Asset Proposal Card */}
       {proposedAsset && (
-          <div className="p-3 m-3 bg-cyan-950/90 border border-cyan-500/50 rounded-lg animate-fade-in-up">
-            <p className="text-xs text-cyan-200 mb-2">
-              I can generate a <b>{proposedAsset.type}</b> to explain this better. Proceed?
+          <div className="p-3 m-3 bg-cyan-950/90 border border-cyan-500/50 rounded-lg animate-fade-in-up shadow-lg">
+            <div className="flex items-start gap-2 mb-2">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                proposedAsset.reason === 'user_request' ? 'bg-green-500/20 text-green-300' : 'bg-cyan-500/20 text-cyan-300'
+              }`}>
+                {proposedAsset.reason === 'user_request' ? 'REQUESTED' : 'SUGGESTED'}
+              </span>
+              <span className="text-xs text-cyan-100 font-medium uppercase tracking-wide">
+                 {proposedAsset.type} Generation
+              </span>
+            </div>
+            
+            <p className="text-xs text-slate-300 mb-3 leading-relaxed">
+               {proposedAsset.reason === 'user_request' 
+                 ? `You requested a ${proposedAsset.type}. Ready to generate?`
+                 : `I can generate a ${proposedAsset.type} to visualize this. Proceed?`}
+               <br/>
+               <span className="text-[10px] opacity-60 italic">"{proposedAsset.description}"</span>
             </p>
+
             <div className="flex gap-2">
               <button 
                 onClick={onApproveAsset}
-                className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs py-1.5 rounded transition"
+                className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs py-2 rounded font-medium transition flex justify-center items-center gap-1"
               >
-                Generate
+                Confirm
               </button>
               <button 
                 onClick={onDismissAsset}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-1.5 rounded transition"
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded font-medium transition"
               >
                 Dismiss
               </button>

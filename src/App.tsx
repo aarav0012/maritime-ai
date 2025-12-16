@@ -6,12 +6,16 @@ import { Header } from './components/Header';
 import { SidebarLogs } from './components/SidebarLogs';
 import { ControlFooter } from './components/ControlFooter';
 
-import { analyzeInteraction } from './services/gemini';
-import { 
-  MessageRole 
+import { analyzeInteraction } from './services/assets';
+import { ConnectionState } from './services/client';
+
+import type { 
+  KnowledgeDocument, 
+  SystemAlert, 
+  AppState, 
+  ChatMessage
 } from './types';
-import type { KnowledgeDocument, SystemAlert, AppState } from './types';
-import { ConnectionState } from './services/gemini';
+import { MessageRole } from './types';
 
 // Hooks
 import { useAudioAnalysis } from './hooks/useAudioAnalysis';
@@ -39,8 +43,16 @@ export default function App() {
   
   const { 
     assets, activeAssetId, setActiveAssetId, proposedAsset, setProposedAsset, 
-    assetQueue, isProcessing, approveProposedAsset, dismissProposedAsset, 
+    assetQueue, isProcessing, approveProposedAsset, dismissProposedAsset, queueAsset
   } = useAssetManager((text) => addMessage(MessageRole.SYSTEM, text));
+
+  // --- REFS FOR STALE CLOSURE FIX ---
+  // We need a ref to access the latest messages inside the 'handleTurnComplete' callback
+  // because that callback is defined once and passed to the long-lived session client.
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // --- EFFECTS & HANDLERS ---
   
@@ -77,8 +89,11 @@ export default function App() {
   };
 
   // Background Analysis Logic
+  // This function is called by the session client when a turn completes.
   const handleTurnComplete = async () => {
-    const msgs = messages; // Note: In a real closure this might be stale, but since we are triggering from hook callback context it works for now.
+    // CRITICAL FIX: Use the ref to get the LATEST messages. 
+    // Using 'messages' state directly here would be stale (empty) due to closure capture.
+    const msgs = messagesRef.current; 
     
     const lastUser = [...msgs].reverse().find(m => m.role === MessageRole.USER);
     const lastModel = [...msgs].reverse().find(m => m.role === MessageRole.ASSISTANT);
@@ -98,7 +113,16 @@ export default function App() {
         }
         
         if (result.assetNeeded && result.assetType !== 'none') {
-            setProposedAsset({ type: result.assetType, description: result.assetDescription });
+            // Auto-generate if explicitly requested, otherwise propose
+            if (result.reason === 'user_request') {
+                queueAsset(result.assetType, result.assetDescription, result.reason);
+            } else {
+                setProposedAsset({ 
+                  type: result.assetType, 
+                  description: result.assetDescription,
+                  reason: result.reason
+                });
+            }
         }
     }
   };

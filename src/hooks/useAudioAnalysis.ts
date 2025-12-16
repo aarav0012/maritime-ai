@@ -37,7 +37,7 @@ export function useAudioAnalysis() {
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 512;
       analyserRef.current.smoothingTimeConstant = 0.1;
-      analyserRef.current.connect(audioContextRef.current.destination);
+    //   analyserRef.current.connect(audioContextRef.current.destination);
     }
 
     if (audioContextRef.current.state === 'suspended') {

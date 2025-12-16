@@ -1,13 +1,20 @@
 import { useState, useEffect } from 'react';
 import { AssetType } from '../types';
 import type { GeneratedAsset } from '../types';
-import { generateImage, generateVideo, generateChartData, generateDiagram, getFriendlyErrorMessage } from '../services/gemini';
+import { generateImage, generateVideo, generateChartData, generateDiagram } from '../services/assets';
+import { getFriendlyErrorMessage } from '../services/utils';
+
+export interface ProposedAsset {
+  type: string;
+  description: string;
+  reason: 'user_request' | 'system_suggestion' | 'none';
+}
 
 export function useAssetManager(addSystemMessage: (text: string) => void) {
   const [assets, setAssets] = useState<GeneratedAsset[]>([]);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
-  const [proposedAsset, setProposedAsset] = useState<{type: string, description: string} | null>(null);
-  const [assetQueue, setAssetQueue] = useState<{type: string, description: string}[]>([]);
+  const [proposedAsset, setProposedAsset] = useState<ProposedAsset | null>(null);
+  const [assetQueue, setAssetQueue] = useState<ProposedAsset[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Queue Processing Loop
@@ -19,7 +26,9 @@ export function useAssetManager(addSystemMessage: (text: string) => void) {
       const { type, description } = currentRequest;
 
       setIsProcessing(true);
+      // Remove from queue immediately to prevent blocking, but keep reference for error context
       setAssetQueue(prev => prev.slice(1));
+      
       addSystemMessage(`Generating ${type}...`);
 
       try {
@@ -47,8 +56,7 @@ export function useAssetManager(addSystemMessage: (text: string) => void) {
         if (assetData.url || assetData.data) {
           setAssets(prev => [...prev, assetData]);
           setActiveAssetId(assetData.id);
-          
-          // Generate a log representation for the chat
+            addSystemMessage(`✅ Generated ${type} successfully: ${description}`);
           let markdownLog = '';
           if (assetData.type === 'chart' && Array.isArray(assetData.data) && assetData.data.length > 0) {
              const keys = Object.keys(assetData.data[0]);
@@ -72,7 +80,7 @@ export function useAssetManager(addSystemMessage: (text: string) => void) {
          console.error("Asset Generation Error:", error);
          // Display user-friendly error in chat
          const friendlyMsg = getFriendlyErrorMessage(error);
-         addSystemMessage(`Error: Failed to generate ${type}. ${friendlyMsg}`);
+         addSystemMessage(`❌ Generation Failed: ${friendlyMsg}\nRequest: ${description}`);
       } finally {
         setIsProcessing(false);
       }
@@ -102,6 +110,7 @@ export function useAssetManager(addSystemMessage: (text: string) => void) {
     isProcessing,
     approveProposedAsset,
     dismissProposedAsset,
-    queueAsset: (type: string, description: string) => setAssetQueue(prev => [...prev, { type, description }])
+    queueAsset: (type: string, description: string, reason: 'user_request' | 'system_suggestion' | 'none') => 
+      setAssetQueue(prev => [...prev, { type, description, reason }])
   };
 }

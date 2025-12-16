@@ -1,6 +1,6 @@
 import React from 'react';
 import { Power, Mic } from 'lucide-react';
-import { ConnectionState } from '../services/gemini';
+import { ConnectionState } from '../services/client';
 
 interface ControlFooterProps {
   connectionState: ConnectionState;
