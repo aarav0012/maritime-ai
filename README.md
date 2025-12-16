@@ -1,73 +1,124 @@
-# React + TypeScript + Vite
+# ⚓ Maritime AI Commander
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **Production-Grade Voice Interface for Naval & Maritime Operations**
 
-Currently, two official plugins are available:
+The **Maritime AI Commander** is a next-generation, multi-modal dashboard designed for ship crews, cargo operators, and naval command. It leverages the **Google Gemini Live API (WebSockets)** for low-latency, bi-directional voice interaction and utilizes the **Gemini 2.5 Flash** ecosystem for real-time visual asset generation.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Key Features
 
-## React Compiler
+### 🧠 Intelligent Core
+- **Real-time Voice Interaction:** Built on `gemini-2.5-flash-native-audio-preview`. Supports interruption, natural pacing, and emotive speech.
+- **RAG (Retrieval-Augmented Generation):** Inject custom operational documents (PDF content, text logs, manifests) via the Admin Panel to ground the AI's answers in ship-specific data.
+- **Context Awareness:** The system analyzes every interaction in the background to detect missing knowledge or potential safety alerts.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 🎨 Multi-Modal Asset Generation
+The system does not just speak; it visualizes. It autonomously determines when to generate visual aids based on the conversation:
+- **Dynamic Diagrams:** Generates **Mermaid.js** flowcharts for standard operating procedures (SOPs) and checklists.
+- **Live Charting:** Plots statistical data using **Recharts** for engine diagnostics, fuel levels, or cargo metrics.
+- **Visuals & Video:** Generates reference images (`gemini-2.5-flash-image`) and cinematic simulations (`veo-3.1`) for training or navigation scenarios.
 
-## Expanding the ESLint configuration
+### 🖥️ Immersive UI
+- **3D Avatar Interface:** Features a React Three Fiber (R3F) avatar with real-time lip-syncing driven by audio RMS analysis.
+- **Glassmorphism Design:** Modern, dark-mode UI optimized for bridge/control room environments (low light).
+- **Admin Control Plane:** Manage the Knowledge Base, view system alerts, and monitor "Out of Domain" queries.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+---
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 🛠️ Technology Stack
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- **Frontend:** React 19, TypeScript, Vite
+- **Styling:** Tailwind CSS
+- **AI Model:** Google Gemini (`@google/genai` SDK)
+  - *Live API:* `gemini-2.5-flash-native-audio-preview-09-2025`
+  - *Reasoning:* `gemini-2.5-flash`
+  - *Video:* `veo-3.1-fast-generate-preview`
+- **Visualization:**
+  - `mermaid` (Diagrams)
+  - `recharts` (Data)
+  - `@react-three/fiber` (3D Environment)
+- **Audio:** Native Web Audio API with custom PCM processing.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## ⚙️ Architecture Highlights
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 1. Hybrid Audio Processing
+To support cross-platform compatibility (specifically iOS/macOS which enforce 44.1kHz/48kHz sample rates), the application implements a custom audio pipeline:
+- **Input:** Captures microphone audio at the system's native hardware sample rate.
+- **Downsampling:** A custom `downsampleTo16k` Linear PCM processor converts audio to 16kHz in real-time for the Gemini API.
+- **Output:** Receives raw PCM 24kHz from Gemini, aligns bytes to `Int16Array`, and plays via the Web Audio API.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### 2. Dual-Stream Logic
+The app runs two concurrent logic streams:
+1.  **The "Voice" Stream:** A persistent WebSocket connection handling audio I/O for instant conversational latency.
+2.  **The "Analyst" Stream:** A background text-based process that monitors the chat transcript to trigger side-effects (generating charts, logging alerts) without blocking the voice conversation.
+
+---
+
+## 📦 Installation & Setup
+
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/your-username/maritime-ai-commander.git
+    cd maritime-ai-commander
+    ```
+
+2.  **Install dependencies**
+    ```bash
+    npm install
+    ```
+
+3.  **Configure Environment**
+    You need a Google AI Studio API Key.
+    
+    *Create a `.env` file (or set in your deployment environment):*
+    ```env
+    API_KEY=your_gemini_api_key_here
+    ```
+
+4.  **Run Development Server**
+    ```bash
+    npm run dev
+    ```
+
+---
+
+## 🎮 Usage Guide
+
+### The Dashboard
+1.  **Connect:** Click the **Microphone** button in the footer to initialize the neural connection.
+2.  **Speak:** Ask questions like:
+    - *"What is the procedure for anchor dropping?"*
+    - *"Show me a chart of the fuel consumption over the last 4 hours."*
+    - *"Visualize a collision avoidance scenario."*
+3.  **Observe:** The Avatar will lip-sync to the response. If you requested a visual, it will appear in the right-hand panel.
+
+### Admin Panel
+1.  Click the **Settings (Gear)** icon in the header.
+2.  **Knowledge Base:** Upload text files (e.g., "ShipManual.txt") to feed specific knowledge to the RAG system.
+3.  **Alerts:** View queries that the system failed to answer or flagged as non-maritime.
+
+---
+
+## 🔧 Troubleshooting
+
+**No Sound / Avatar not moving?**
+- Ensure your browser has permission to access the Microphone.
+- The system auto-detects silence. Speak clearly.
+- If on macOS, the system automatically handles sample rate conversion, but ensure no other app has exclusive control of the audio input.
+
+**"Billing Quota Exceeded"**
+- The project uses `Gemini 2.5 Flash` and `Veo`. Ensure your Google Cloud project has billing enabled and quotas are sufficient for the Live API.
+
+**Connection Errors**
+- The Live API requires a stable internet connection (WebSocket). Firewalls blocking `wss://` protocols may cause connection failures.
+
+---
+
+## 📜 License
+
+[MIT](LICENSE) - Free for academic and commercial use.
+
+---
+
+*Built with the Google Gemini API.*
