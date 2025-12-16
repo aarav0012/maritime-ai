@@ -3,7 +3,11 @@
  * Gemini Live returns raw PCM (16-bit signed, little-endian) at 24kHz.
  */
 export const convertPCMToAudioBuffer = (ctx: AudioContext, pcmData: ArrayBuffer): AudioBuffer => {
-  const inputData = new Int16Array(pcmData);
+  // CRITICAL FIX: Ensure byte length is multiple of 2 for Int16Array
+  const byteLength = pcmData.byteLength;
+  const alignedLength = byteLength - (byteLength % 2); 
+  const inputData = new Int16Array(pcmData, 0, alignedLength / 2);
+  
   const sampleRate = 24000; 
   const audioBuffer = ctx.createBuffer(1, inputData.length, sampleRate);
   const channelData = audioBuffer.getChannelData(0);

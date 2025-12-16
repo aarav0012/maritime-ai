@@ -37,7 +37,14 @@ export function useAudioAnalysis() {
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 512;
       analyserRef.current.smoothingTimeConstant = 0.1;
-    //   analyserRef.current.connect(audioContextRef.current.destination);
+    }
+
+    // CRITICAL FIX: Always ensure the analyser is connected to the speakers (destination).
+    // We do this safely inside a try-catch because re-connecting might be redundant but necessary if connection dropped.
+    try {
+        analyserRef.current.connect(audioContextRef.current.destination);
+    } catch (e) {
+        // Ignore errors if already connected
     }
 
     if (audioContextRef.current.state === 'suspended') {

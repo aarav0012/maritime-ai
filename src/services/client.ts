@@ -1,7 +1,8 @@
+
 import { LiveServerMessage, Modality } from "@google/genai";
 import { ai, checkApiKey } from './config';
 import { createPcmBlob, base64ToPCM } from './audio';
-import { LIVE_RELAY_INSTRUCTION } from './prompts';
+import { BASE_INSTRUCTION_RAG, BASE_INSTRUCTION_STANDARD, VISUAL_PROTOCOL } from './prompts';
 
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
@@ -50,8 +51,7 @@ export class MaritimeLiveClient {
     console.log(`[MaritimeLiveClient] State: ${newState}`);
   }
 
-  // UPDATED: No document passing here. This is a dumb relay.
-  async connect() {
+  async connect(contextDocs: string[], isRagMode: boolean) {
     if (this.state === ConnectionState.CONNECTING || this.state === ConnectionState.CONNECTED) {
         return;
     }
@@ -62,13 +62,31 @@ export class MaritimeLiveClient {
 
     this.setState(ConnectionState.CONNECTING);
 
+    // CRITICAL: TRUNCATE RAG CONTEXT
+    // Large payloads cause WebSocket failures. Limit to ~25k characters.
+    let docsText = "NO DOCUMENTS LOADED. DATABASE IS EMPTY.";
+    if (contextDocs.length > 0) {
+        const fullText = contextDocs.join('\n\n');
+        if (fullText.length > 25000) {
+            console.warn(`[MaritimeLiveClient] Truncating RAG context from ${fullText.length} to 25000 chars.`);
+            docsText = fullText.substring(0, 25000) + "\n\n[...SYSTEM NOTE: REMAINING DATA TRUNCATED...]";
+        } else {
+            docsText = fullText;
+        }
+    }
+
+    const baseInstruction = isRagMode 
+      ? BASE_INSTRUCTION_RAG.replace('{{DOCUMENTS}}', docsText)
+      : BASE_INSTRUCTION_STANDARD;
+    
+    const finalInstruction = baseInstruction + "\n\n" + VISUAL_PROTOCOL;
+
     try {
-      // Use standard systemInstruction object format for maximum compatibility
       const session = await ai.live.connect({
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO], 
-          systemInstruction: { parts: [{ text: LIVE_RELAY_INSTRUCTION }] },
+          systemInstruction: { parts: [{ text: finalInstruction }] },
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
           },
@@ -95,11 +113,10 @@ export class MaritimeLiveClient {
           onclose: (e) => {
             console.log("Session Closed from Server", e);
             
-            // FATAL ERROR DETECTION
             if (e.reason && (e.reason.toLowerCase().includes('quota') || e.reason.toLowerCase().includes('billing'))) {
                  this.eventHandlers?.onError?.(new Error(`Billing Quota Exceeded: ${e.reason}`));
             } else if (e.code === 1009) {
-                 this.eventHandlers?.onError?.(new Error(`Data Payload Too Large.`));
+                 this.eventHandlers?.onError?.(new Error(`Data Payload Too Large. Try reducing RAG documents.`));
             }
 
             this.cleanupLocalResources();
