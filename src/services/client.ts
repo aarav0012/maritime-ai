@@ -1,7 +1,6 @@
-
 import { LiveServerMessage, Modality } from "@google/genai";
 import { ai, checkApiKey } from './config';
-import { createPcmBlob, base64ToPCM } from './audio';
+import { createPcmBlob, base64ToPCM, downsampleTo16k } from './audio';
 import { BASE_INSTRUCTION_RAG, BASE_INSTRUCTION_STANDARD, VISUAL_PROTOCOL } from './prompts';
 
 export enum ConnectionState {
@@ -185,22 +184,21 @@ export class MaritimeLiveClient {
   }
 
   private async startAudioInput() {
-    this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)({ 
-        sampleRate: 16000 
-    });
+    // FIX: Do not force sampleRate here. Let AudioContext use system default (e.g., 44.1k/48k on Mac).
+    this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     
     if (this.inputContext.state === 'suspended') {
       await this.inputContext.resume();
     }
 
     const actualSampleRate = this.inputContext.sampleRate;
-    console.log(`[Audio] Input Sample Rate: ${actualSampleRate}`);
+    console.log(`[Audio] System Input Sample Rate: ${actualSampleRate}`);
 
     try {
+        // FIX: Do not force sampleRate in constraints. This causes errors on Mac/iOS.
         this.stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
                 channelCount: 1,
-                sampleRate: 16000, 
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
@@ -230,7 +228,9 @@ export class MaritimeLiveClient {
       this.eventHandlers.onVolumeChange(rms);
 
       try {
-          const pcmBlob = createPcmBlob(inputData, actualSampleRate);
+          // FIX: Downsample from system rate (e.g. 48k) to 16k before sending to Gemini
+          const downsampledData = downsampleTo16k(inputData, actualSampleRate);
+          const pcmBlob = createPcmBlob(downsampledData, 16000);
           this.session.sendRealtimeInput({ media: pcmBlob });
       } catch (err: any) {
           if (err.message && (err.message.includes('CLOSING') || err.message.includes('CLOSED'))) {

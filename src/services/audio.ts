@@ -28,6 +28,35 @@ export const base64ToPCM = (base64: string): ArrayBuffer => {
   return bytes.buffer;
 };
 
+/**
+ * Downsamples audio buffer to 16kHz for Gemini API compatibility.
+ * Simple averaging is used to decimate the signal.
+ */
+export const downsampleTo16k = (buffer: Float32Array, inputRate: number): Float32Array => {
+  if (inputRate === 16000) return buffer;
+  
+  const outputRate = 16000;
+  const ratio = inputRate / outputRate;
+  const newLength = Math.ceil(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  
+  for (let i = 0; i < newLength; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.floor((i + 1) * ratio);
+    let sum = 0;
+    let count = 0;
+    
+    // Simple boxcar filter (averaging) to prevent aliasing
+    for (let j = start; j < end && j < buffer.length; j++) {
+      sum += buffer[j];
+      count++;
+    }
+    
+    result[i] = count > 0 ? sum / count : buffer[start]; 
+  }
+  return result;
+};
+
 export const createPcmBlob = (data: Float32Array, sampleRate: number = 16000): any => {
   const l = data.length;
   const int16 = new Int16Array(l);
