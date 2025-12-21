@@ -18,7 +18,6 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
   const [userIsSpeaking, setUserIsSpeaking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false); 
 
-  // We need current messages for context in closures
   const messagesRef = useRef<ChatMessage[]>([]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
@@ -71,14 +70,11 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
       source.connect(ctx.destination);
     }
     
-    // SCHEDULING LOGIC FIX:
-    // macOS/iOS clocks drift from the accumulated duration.
-    // If nextStartTime is in the past, we reset to currentTime to avoid "catch up" speed-ups or gaps.
-    // We add a tiny offset (0.005s) to ensure we don't schedule in the immediate past which causes sample cuts.
+    // SAFARI / IOS COMPATIBILITY:
+    // We add a 25ms safety margin (0.025) to prevent the "buffer starvation" clicks common on Mac hardware
     const currentTime = ctx.currentTime;
-    
     if (nextStartTimeRef.current < currentTime) {
-        nextStartTimeRef.current = currentTime + 0.005;
+        nextStartTimeRef.current = currentTime + 0.025;
     }
     
     source.start(nextStartTimeRef.current);
@@ -98,13 +94,7 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
   const startSession = async (documents: KnowledgeDocument[], ragMode: boolean, onTurnComplete?: () => void) => {
     const currentAttemptId = crypto.randomUUID();
     activeSessionIdRef.current = currentAttemptId;
-
-    // TRACK START TIME OF ATTEMPT
     sessionStartTimeRef.current = Date.now();
-
-    if (ragMode && documents.length === 0) {
-        addMessage(MessageRole.SYSTEM, 'Knowledge Base is empty. RAG mode is enabled but no documents are available.');
-    }
 
     if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -114,11 +104,7 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
     if (liveClientRef.current) {
         const oldClient = liveClientRef.current;
         liveClientRef.current = null;
-        try {
-            await oldClient.disconnect();
-        } catch (e) {
-            console.warn("Error disconnecting previous client:", e);
-        }
+        try { await oldClient.disconnect(); } catch (e) {}
     }
     
     stopAllAudio();
@@ -129,7 +115,6 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
             nextStartTimeRef.current = audioContextRef.current.currentTime;
         }
     } catch (e) {
-        console.error("Audio Context Failed", e);
         addMessage(MessageRole.SYSTEM, "Error: Audio System Failed.");
         return;
     }
@@ -141,43 +126,26 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
     const client = new MaritimeLiveClient({
       onStateChange: (state) => {
         if (activeSessionIdRef.current !== currentAttemptId) return;
-
         setConnectionState(state);
         if (state === ConnectionState.CONNECTED) {
             localStorage.setItem('maritime_autoconnect', 'true');
-            addMessage(MessageRole.SYSTEM, ragMode 
-                ? "✓ System Online [RAG MODE ACTIVE]." 
-                : "✓ System Online.");
+            addMessage(MessageRole.SYSTEM, ragMode ? "✓ System Online [RAG MODE ACTIVE]." : "✓ System Online.");
         }
-        
         if (state === ConnectionState.DISCONNECTED) {
-            const sessionDuration = Date.now() - sessionStartTimeRef.current;
             const shouldReconnect = localStorage.getItem('maritime_autoconnect') === 'true';
-
-            // LOOP PROTECTION
-            if (shouldReconnect) {
-                if (sessionDuration > 10000) {
-                    addMessage(MessageRole.SYSTEM, "Connection lost. Reconnecting...");
-                    reconnectTimeoutRef.current = window.setTimeout(() => {
-                        if (activeSessionIdRef.current === currentAttemptId) {
-                            startSession(documents, ragMode, onTurnComplete);
-                        }
-                    }, 3000);
-                } else {
-                    addMessage(MessageRole.SYSTEM, "Connection unstable (Immediate Disconnect). Auto-reconnect paused.");
-                    localStorage.setItem('maritime_autoconnect', 'false');
-                }
+            if (shouldReconnect && (Date.now() - sessionStartTimeRef.current > 10000)) {
+                addMessage(MessageRole.SYSTEM, "Connection lost. Reconnecting...");
+                reconnectTimeoutRef.current = window.setTimeout(() => {
+                    if (activeSessionIdRef.current === currentAttemptId) startSession(documents, ragMode, onTurnComplete);
+                }, 3000);
             }
         }
       },
       onAudioData: (data) => {
-          if (activeSessionIdRef.current === currentAttemptId) {
-             playAudioChunk(data);
-          }
+          if (activeSessionIdRef.current === currentAttemptId) playAudioChunk(data);
       },
       onTranscript: (user, model) => {
         if (activeSessionIdRef.current !== currentAttemptId) return;
-        
         setMessages(prev => {
           const newHistory = [...prev];
           if (user) {
@@ -207,15 +175,9 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
       },
       onTurnComplete: async () => {
         if (activeSessionIdRef.current !== currentAttemptId) return;
-        
-        // In the integrated architecture, the model handles the reply automatically.
-        // We just reset IDs and trigger side-effects (like visual analysis).
         activeMessageIds.current.user = null;
         activeMessageIds.current.model = null;
-
-        if (onTurnComplete) {
-            onTurnComplete();
-        }
+        if (onTurnComplete) onTurnComplete();
       },
       onInterrupted: () => {
         if (activeSessionIdRef.current !== currentAttemptId) return;
@@ -230,52 +192,33 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
         if (activeSessionIdRef.current !== currentAttemptId) return;
         const msg = getFriendlyErrorMessage(err);
         addMessage(MessageRole.SYSTEM, `Error: ${msg}`);
-        
-        if (msg.includes('Quota') || msg.includes('Billing')) {
-            localStorage.setItem('maritime_autoconnect', 'false');
-            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-        }
       }
     });
 
     const docContents = ragMode ? documents.map(d => `[SOURCE DOCUMENT: ${d.name}]\n${d.content}`) : [];
-
     try {
         await client.connect(docContents, ragMode);
     } catch (e) {
         if (activeSessionIdRef.current === currentAttemptId) {
-            console.error("Connection failed", e);
-            const msg = getFriendlyErrorMessage(e);
-            addMessage(MessageRole.SYSTEM, `Error: ${msg}`);
             setConnectionState(ConnectionState.DISCONNECTED);
             localStorage.setItem('maritime_autoconnect', 'false');
         }
-        return;
     }
-
-    if (activeSessionIdRef.current !== currentAttemptId) {
-        client.disconnect();
-        return;
-    }
-
-    liveClientRef.current = client;
+    if (activeSessionIdRef.current === currentAttemptId) liveClientRef.current = client;
   };
 
   const stopSession = async () => {
     activeSessionIdRef.current = null;
     localStorage.setItem('maritime_autoconnect', 'false');
-
     if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
     }
-
     if (liveClientRef.current) {
         const client = liveClientRef.current;
         liveClientRef.current = null;
         await client.disconnect();
     }
-    
     stopAllAudio();
     activeMessageIds.current = { user: null, model: null };
     setConnectionState(ConnectionState.DISCONNECTED);
@@ -288,7 +231,7 @@ export function useMaritimeSession({ audioContextRef, analyserRef, ensureAudioCo
     addMessage,
     userIsSpeaking,
     isSpeaking,
-    isProcessing: false, // Not manually processing in this mode
+    isProcessing: false,
     startSession,
     stopSession
   };

@@ -3,7 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { useGLTF, Environment, ContactShadows, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
-// Default Ready Player Me Avatar URL (Female Assistant)
+// Default Ready Player Me Avatar URL
 const DEFAULT_AVATAR_URL = "https://models.readyplayer.me/693ce7a814ff705000efdf25.glb";
 
 interface Avatar3DProps {
@@ -11,24 +11,51 @@ interface Avatar3DProps {
   audioLevelRef?: React.MutableRefObject<number>;
 }
 
-// Inner Model Component
 const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audioLevelRef?: React.MutableRefObject<number> }) => {
   const { scene } = useGLTF(url);
-  const headRef = useRef<THREE.Object3D | null>(null);
-  const neckRef = useRef<THREE.Object3D | null>(null);
-  const morphTargetMeshRef = useRef<THREE.Mesh | null>(null);
   
-  // Find Head bone and Mesh with morph targets on load
+  // Bone Refs
+  const bones = useRef<{
+    head: THREE.Object3D | null;
+    neck: THREE.Object3D | null;
+    rightArm: THREE.Object3D | null;
+    leftArm: THREE.Object3D | null;
+    rightForeArm: THREE.Object3D | null;
+    leftForeArm: THREE.Object3D | null;
+    rightHand: THREE.Object3D | null;
+    leftHand: THREE.Object3D | null;
+    spine: THREE.Object3D | null;
+    shoulders: THREE.Object3D | null;
+  }>({
+    head: null, neck: null, rightArm: null, leftArm: null, 
+    rightForeArm: null, leftForeArm: null, rightHand: null, leftHand: null, spine: null, shoulders: null
+  });
+
+  const morphTargetMeshRef = useRef<THREE.Mesh | null>(null);
+  const initialRotations = useRef<Map<string, THREE.Euler>>(new Map());
+  
+  // State Refs for smoothing and micro-timing
+  const blinkRef = useRef({ lastBlink: 0, nextBlink: 2, isBlinking: false });
+
   useEffect(() => {
     scene.traverse((child) => {
-      // Find Bones
-      if (child.name === 'Head') headRef.current = child;
-      if (child.name === 'Neck') neckRef.current = child;
+      if (child instanceof THREE.Bone) {
+        if (child.name === 'Head') bones.current.head = child;
+        if (child.name === 'Neck') bones.current.neck = child;
+        if (child.name === 'RightArm') bones.current.rightArm = child;
+        if (child.name === 'LeftArm') bones.current.leftArm = child;
+        if (child.name === 'RightForeArm') bones.current.rightForeArm = child;
+        if (child.name === 'LeftForeArm') bones.current.leftForeArm = child;
+        if (child.name === 'RightHand') bones.current.rightHand = child;
+        if (child.name === 'LeftHand') bones.current.leftHand = child;
+        if (child.name === 'Spine') bones.current.spine = child;
+        if (child.name.includes('Shoulder')) bones.current.shoulders = child;
+
+        initialRotations.current.set(child.name, child.rotation.clone());
+      }
       
-      // Find Main Head Mesh for Morph Targets (usually Wolf3D_Head or similar)
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh && mesh.morphTargetDictionary && mesh.morphTargetInfluences) {
-        // We prefer the head mesh which usually has 'mouthOpen' or 'viseme_aa'
         if (mesh.name.includes('Head') || mesh.name.includes('Avatar')) {
            morphTargetMeshRef.current = mesh;
         }
@@ -39,197 +66,194 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
   useFrame((stateCtx) => {
     const t = stateCtx.clock.elapsedTime;
     const level = audioLevelRef?.current || 0;
-    
-    // 1. BASE MOVEMENT (IDLE/FLOATING)
-    if (scene) {
-        scene.position.y = THREE.MathUtils.lerp(scene.position.y, -2.7 + Math.sin(t * 0.5) * 0.02, 0.1);
+    const lerpFactor = 0.08;
+
+    // 1. BLINK LOGIC
+    if (t - blinkRef.current.lastBlink > blinkRef.current.nextBlink) {
+        blinkRef.current.isBlinking = true;
+        if (t - blinkRef.current.lastBlink > blinkRef.current.nextBlink + 0.12) {
+            blinkRef.current.isBlinking = false;
+            blinkRef.current.lastBlink = t;
+            blinkRef.current.nextBlink = 3 + Math.random() * 5;
+        }
     }
 
-    // 2. HEAD & NECK ANIMATION
-    if (headRef.current && neckRef.current) {
-        let targetHeadRot = new THREE.Vector3(0, 0, 0);
-        let targetNeckRot = new THREE.Vector3(0, 0, 0);
+    // 2. STABILIZED BODY & VERTICAL COMPOSITION
+    // Lowered the base from -2.7 to -3.1 to give the head "breathing room" at the top
+    scene.position.y = THREE.MathUtils.lerp(scene.position.y, -3.1 + Math.sin(t * 0.4) * 0.01, 0.05);
+
+    if (bones.current.head && bones.current.neck) {
+        let targetHead = new THREE.Vector3(0, 0, 0);
+        const jitterX = Math.sin(t * 15) * 0.001;
+        const jitterY = Math.cos(t * 12) * 0.001;
 
         if (state === 'idle') {
-            // Slow, subtle look around
-            targetNeckRot.y = Math.sin(t * 0.2) * 0.1;
-            targetNeckRot.x = Math.sin(t * 0.3) * 0.05;
-        } 
-        else if (state === 'listening') {
-            // Lean forward slightly, tilt head to indicate attention
-            targetNeckRot.x = 0.15; // Lean forward
-            targetHeadRot.z = Math.sin(t * 1.5) * 0.05; // Subtle tilt
-            // Micro nods
-            targetHeadRot.x = Math.sin(t * 2) * 0.02;
-        } 
-        else if (state === 'speaking') {
-            // Amplified Intensity: Scale input RMS (usually 0.0-0.2) to usable animation range (0.0-1.5)
-            // Increased multiplier for exaggerated responsiveness
-            const rawIntensity = level * 10.0;
-            const intensity = Math.min(rawIntensity, 1.5);
-            
-            // Base conversational rhythm (faster than idle)
-            targetHeadRot.x = Math.sin(t * 3.5) * 0.05;
-            targetHeadRot.y = Math.sin(t * 2.5) * 0.05;
-            
-            // EXAGGERATED RESPONSIVENESS
-            // 1. Nods (Pitch): Strong down-beat on volume peaks
-            targetHeadRot.x += intensity * 0.35; 
-            
-            // 2. Tilts (Roll): Head tilts side-to-side for expressiveness
-            targetHeadRot.z = Math.cos(t * 6) * 0.15 * intensity;
-            
-            // 3. Turns (Yaw): Slight turning into the emphasis
-            targetHeadRot.y += Math.sin(t * 4) * 0.1 * intensity;
-            
-            // 4. Neck Engagement: Shoulders/Neck stiffen/move up with intensity
-            targetNeckRot.x = -0.05 + (intensity * 0.08); 
-            targetNeckRot.z = -targetHeadRot.z * 0.2; // subtle counter-balance
-        }
-        else if (state === 'processing') {
-             // Look up/side as if thinking
-             targetHeadRot.y = 0.2;
-             targetHeadRot.x = -0.1;
-             targetHeadRot.z = 0.1;
+            targetHead.set(jitterX, jitterY, 0);
+        } else if (state === 'listening') {
+            // A slightly deeper nod for attentiveness
+            targetHead.set(0.14 + (Math.sin(t * 1.8) * 0.02), jitterY, 0.03);
+        } else if (state === 'speaking') {
+            const intensity = Math.min(level * 10, 1);
+            targetHead.y = Math.sin(t * 1.4) * 0.08;
+            targetHead.x = (Math.cos(t * 2) * 0.04) + (intensity * 0.12);
+            targetHead.z = Math.sin(t * 0.7) * 0.02;
         }
 
-        // Apply smooth transitions
-        headRef.current.rotation.x = THREE.MathUtils.lerp(headRef.current.rotation.x, targetHeadRot.x, 0.1);
-        headRef.current.rotation.y = THREE.MathUtils.lerp(headRef.current.rotation.y, targetHeadRot.y, 0.1);
-        headRef.current.rotation.z = THREE.MathUtils.lerp(headRef.current.rotation.z, targetHeadRot.z, 0.1);
-        
-        neckRef.current.rotation.x = THREE.MathUtils.lerp(neckRef.current.rotation.x, targetNeckRot.x, 0.1);
-        neckRef.current.rotation.y = THREE.MathUtils.lerp(neckRef.current.rotation.y, targetNeckRot.y, 0.1);
-        neckRef.current.rotation.z = THREE.MathUtils.lerp(neckRef.current.rotation.z, targetNeckRot.z, 0.1);
+        bones.current.head.rotation.x = THREE.MathUtils.lerp(bones.current.head.rotation.x, targetHead.x, lerpFactor);
+        bones.current.head.rotation.y = THREE.MathUtils.lerp(bones.current.head.rotation.y, targetHead.y, lerpFactor);
+        bones.current.head.rotation.z = THREE.MathUtils.lerp(bones.current.head.rotation.z, targetHead.z, lerpFactor);
     }
 
-    // 3. REFINED LIP SYNC / JAW MOVEMENT
-    if (morphTargetMeshRef.current && morphTargetMeshRef.current.morphTargetDictionary && morphTargetMeshRef.current.morphTargetInfluences) {
-        const mouthOpenIndex = morphTargetMeshRef.current.morphTargetDictionary['mouthOpen'] ?? morphTargetMeshRef.current.morphTargetDictionary['jawOpen'];
+    // 3. REFINED "ELBOWS AT WAIST" GESTURING
+    const animateArm = (arm: THREE.Object3D | null, foreArm: THREE.Object3D | null, hand: THREE.Object3D | null, isRight: boolean) => {
+        if (!arm || !foreArm) return;
+        const side = isRight ? 1 : -1;
+        const baseRot = initialRotations.current.get(arm.name) || new THREE.Euler();
+        const baseForeRot = initialRotations.current.get(foreArm.name) || new THREE.Euler();
+        const baseHandRot = initialRotations.current.get(hand?.name || '') || new THREE.Euler();
+
+        // DEFAULTS: Keep shoulders stable and broad
+        let targetArmX = baseRot.x + 0.1; 
+        let targetArmY = baseRot.y;
+        let targetArmZ = baseRot.z + (side * 0.1); 
+
+        let targetForeX = baseForeRot.x - 0.5; 
+        let targetForeY = baseForeRot.y + (side * 0.4); 
+        let targetHandY = baseHandRot.y;
+
+        if (state === 'speaking') {
+            const intensity = Math.min(level * 25, 1.4);
+            const sweep = Math.sin(t * 2.5 + (isRight ? 0 : Math.PI)) * 0.3 * intensity;
+            
+            targetArmX = baseRot.x + 0.15 + (Math.sin(t * 0.8) * 0.05);
+            targetArmZ = baseRot.z + (side * 0.15); 
+
+            targetForeX = baseForeRot.x - (1.2 + sweep); 
+            targetForeY = baseForeRot.y + (side * (0.8 + sweep * 0.5)); 
+            targetHandY = baseHandRot.y + (side * (0.6 + sweep)); 
+        } else if (state === 'listening') {
+            targetArmX = baseRot.x + 0.2;
+            targetForeX = baseForeRot.x - 0.8;
+            targetForeY = baseForeRot.y + (side * 0.5);
+        }
+
+        arm.rotation.x = THREE.MathUtils.lerp(arm.rotation.x, targetArmX, 0.04);
+        arm.rotation.y = THREE.MathUtils.lerp(arm.rotation.y, targetArmY, 0.04);
+        arm.rotation.z = THREE.MathUtils.lerp(arm.rotation.z, targetArmZ, 0.04);
         
-        if (mouthOpenIndex !== undefined) {
-             let targetOpen = 0;
-             let smoothingSpeed = 0.1;
+        foreArm.rotation.x = THREE.MathUtils.lerp(foreArm.rotation.x, targetForeX, 0.06);
+        foreArm.rotation.y = THREE.MathUtils.lerp(foreArm.rotation.y, targetForeY, 0.06);
+        
+        if (hand) {
+            hand.rotation.y = THREE.MathUtils.lerp(hand.rotation.y, targetHandY, 0.06);
+        }
+    };
 
-             if (state === 'speaking') {
-                 // 1. Amplification & Thresholding
-                 // Scale up the RMS level significantly as speech RMS is often low (0.05 - 0.2)
-                 const amplified = Math.min(level * 8.0, 1.0);
-                 const threshold = 0.05;
-                 const cleanSignal = amplified > threshold ? amplified : 0;
+    animateArm(bones.current.rightArm, bones.current.rightForeArm, bones.current.rightHand, true);
+    animateArm(bones.current.leftArm, bones.current.leftForeArm, bones.current.leftHand, false);
 
-                 // 2. Syllabic Modulation
-                 // Add high-frequency noise modulated by the signal itself to simulate rapid lip movement
-                 // This prevents the mouth from hanging open during long sustained vowels
-                 const modulation = Math.sin(t * 30) * 0.15; 
-                 
-                 targetOpen = THREE.MathUtils.clamp(cleanSignal + (cleanSignal * modulation), 0, 1);
-                 
-                 // 3. Asymmetric Smoothing (Viseme Dynamics)
-                 // Open Mouth: Fast Attack (0.4) - Lips move quickly to form sounds
-                 // Close Mouth: Slow Decay (0.15) - Lips return to neutral slightly slower
-                 const currentOpen = morphTargetMeshRef.current.morphTargetInfluences[mouthOpenIndex];
-                 smoothingSpeed = targetOpen > currentOpen ? 0.4 : 0.15; 
-             } else {
-                 targetOpen = 0;
-                 smoothingSpeed = 0.1;
-             }
-             
-             morphTargetMeshRef.current.morphTargetInfluences[mouthOpenIndex] = THREE.MathUtils.lerp(
-                 morphTargetMeshRef.current.morphTargetInfluences[mouthOpenIndex], 
-                 targetOpen, 
-                 smoothingSpeed
-             );
+    // 4. FACIAL MORPHS
+    if (morphTargetMeshRef.current && morphTargetMeshRef.current.morphTargetDictionary && morphTargetMeshRef.current.morphTargetInfluences) {
+        const dict = morphTargetMeshRef.current.morphTargetDictionary;
+        const influences = morphTargetMeshRef.current.morphTargetInfluences;
+        
+        const mouthOpenIdx = dict['mouthOpen'] ?? dict['jawOpen'] ?? dict['viseme_aa'];
+        const smileIdx = dict['mouthSmile'] ?? dict['mouthSmileLeft'];
+        const blinkIdx = dict['eyeBlinkLeft'] ?? dict['eyesClosed'];
+
+        if (mouthOpenIdx !== undefined) {
+             let targetOpen = (state === 'speaking') ? Math.min(level * 11.0, 1.0) : 0;
+             influences[mouthOpenIdx] = THREE.MathUtils.lerp(influences[mouthOpenIdx], targetOpen, 0.35);
+        }
+
+        if (blinkIdx !== undefined) {
+            influences[blinkIdx] = THREE.MathUtils.lerp(influences[blinkIdx], blinkRef.current.isBlinking ? 1 : 0, 0.6);
+            const blinkR = dict['eyeBlinkRight'];
+            if (blinkR !== undefined) influences[blinkR] = influences[blinkIdx];
+        }
+
+        if (smileIdx !== undefined) {
+            let targetSmile = (state === 'listening') ? 0.4 : (state === 'speaking') ? 0.25 : 0.05;
+            influences[smileIdx] = THREE.MathUtils.lerp(influences[smileIdx], targetSmile, 0.05);
         }
     }
   });
 
-  return (
-    <primitive 
-      object={scene} 
-      scale={2} 
-      position={[0, -2.7, 0]} 
-    />
-  );
+  // Base position set to -3.1 to lower the whole model
+  return <primitive object={scene} scale={2.2} position={[0, -3.1, 0]} />;
 };
 
-// Holographic Ring for tech feel
-const HoloRing = ({ state }: { state: string }) => {
+const ScanningRing = ({ state }: { state: string }) => {
   const meshRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
   
   useFrame((stateCtx, delta) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.x = Math.PI / 2;
-      meshRef.current.rotation.z += delta * 0.5;
-      
-      const s = 1 + Math.sin(stateCtx.clock.elapsedTime * 2) * 0.05;
-      meshRef.current.scale.set(s, s, s);
+    if (meshRef.current) meshRef.current.rotation.z -= delta * 0.3;
+    if (ringRef.current) {
+        ringRef.current.rotation.z += delta * 0.8;
+        const scale = 1 + Math.sin(stateCtx.clock.elapsedTime * 2) * 0.05;
+        ringRef.current.scale.set(scale, scale, scale);
     }
   });
 
-  const color = state === 'listening' ? '#ef4444' : state === 'speaking' ? '#06b6d4' : '#3b82f6';
+  const color = state === 'listening' ? '#ef4444' : state === 'speaking' ? '#22d3ee' : '#3b82f6';
 
+  // Lowered the scanning ring to match the new character height
   return (
-    <mesh ref={meshRef} position={[0, -2.1, 0]}>
-      <ringGeometry args={[1.2, 1.4, 64]} />
-      <meshStandardMaterial 
-        color={color} 
-        emissive={color}
-        emissiveIntensity={2}
-        transparent 
-        opacity={0.3} 
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <group position={[0, -3.0, 0]} rotation={[-Math.PI/2, 0, 0]}>
+      <mesh ref={meshRef}>
+        <ringGeometry args={[1.4, 1.5, 64]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} transparent opacity={0.2} />
+      </mesh>
+      <mesh ref={ringRef}>
+        <ringGeometry args={[1.2, 1.25, 4, 1]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} transparent opacity={0.8} />
+      </mesh>
+    </group>
   );
 };
 
 export const Avatar3D: React.FC<Avatar3DProps> = ({ state, audioLevelRef }) => {
   return (
-    <div className="w-full h-full relative">
-       {/* Background Grid Overlay */}
-      <div className="absolute inset-0 z-0 bg-[linear-gradient(rgba(15,23,42,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.1)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
+    <div className="w-full h-full relative overflow-hidden bg-slate-950">
+      <div className="absolute inset-0 z-10 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(2,6,23,0.8)_100%)]"></div>
       
-      {/* 
-         CRITICAL FIX: 
-         We strictly define toneMapping and colorSpace to ensure identical rendering 
-         across Chrome (sRGB default) and Firefox/Safari (Linear default).
-      */}
       <Canvas 
-        camera={{ position: [0, 0, 3.5], fov: 40 }} 
-        gl={{ 
-          preserveDrawingBuffer: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          outputColorSpace: THREE.SRGBColorSpace 
-        }}
+        // Adjusted camera position: pushed slightly back (3.4) and lower (0.15) to center the face perfectly with headroom
+        camera={{ position: [0, 0.15, 3.4], fov: 35 }} 
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
-        <ambientLight intensity={0.8} />
-        <spotLight position={[5, 5, 5]} angle={0.2} penumbra={1} intensity={1.2} castShadow />
-        <pointLight position={[-5, -2, -5]} intensity={0.5} color="#3b82f6" />
-        <pointLight position={[5, -2, -5]} intensity={0.5} color="#ef4444" />
+        <color attach="background" args={['#020617']} />
         
-        {/* Main Model */}
+        <ambientLight intensity={0.7} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1.5} />
+        <pointLight position={[-5, 2, 2]} intensity={1.8} color="#3b82f6" /> 
+        <pointLight position={[5, 1, -2]} intensity={3} color="#06b6d4" /> 
+        <pointLight position={[0, 4, 2]} intensity={1} color="#ffffff" />
+        
         <React.Suspense fallback={null}>
             <Model url={DEFAULT_AVATAR_URL} state={state} audioLevelRef={audioLevelRef} />
-            <HoloRing state={state} />
+            <ScanningRing state={state} />
+            <Environment preset="city" />
         </React.Suspense>
         
-        <Environment preset="night" />
-        <ContactShadows position={[0, -3, 0]} opacity={0.5} scale={10} blur={2.5} far={4} color="#000000" />
+        {/* Adjusted shadow to match lowered position */}
+        <ContactShadows position={[0, -3.1, 0]} opacity={0.5} scale={15} blur={3} far={4.5} />
         
         <OrbitControls 
           enableZoom={false} 
           enablePan={false} 
-          minPolarAngle={Math.PI/2.2} 
-          maxPolarAngle={Math.PI/1.9}
-          minAzimuthAngle={-Math.PI/6}
-          maxAzimuthAngle={Math.PI/6}
+          minPolarAngle={Math.PI/2.4} 
+          maxPolarAngle={Math.PI/1.8}
         />
       </Canvas>
       
-      {/* State Overlay Label */}
-      <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 bg-slate-900/50 backdrop-blur px-4 py-1 rounded-full border border-slate-700 text-[10px] tracking-widest uppercase text-cyan-400 z-10">
-        SYSTEM: {state.toUpperCase()}
+      <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
+        <div className="px-6 py-1.5 bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl overflow-hidden relative">
+            <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+                Neural Core: {state}
+            </span>
+        </div>
       </div>
     </div>
   );

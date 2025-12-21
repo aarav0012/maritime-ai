@@ -3,7 +3,6 @@
  * Gemini Live returns raw PCM (16-bit signed, little-endian) at 24kHz.
  */
 export const convertPCMToAudioBuffer = (ctx: AudioContext, pcmData: ArrayBuffer): AudioBuffer => {
-  // CRITICAL FIX: Ensure byte length is multiple of 2 for Int16Array
   const byteLength = pcmData.byteLength;
   const alignedLength = byteLength - (byteLength % 2); 
   const inputData = new Int16Array(pcmData, 0, alignedLength / 2);
@@ -29,8 +28,40 @@ export const base64ToPCM = (base64: string): ArrayBuffer => {
 };
 
 /**
+ * Encodes bytes to base64 following the provided coding guidelines.
+ */
+function encode(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Creates an audio blob for Gemini API from Float32Array data.
+ */
+export const createPcmBlob = (data: Float32Array, sampleRate: number = 16000): any => {
+  const l = data.length;
+  const int16 = new Int16Array(l);
+  for (let i = 0; i < l; i++) {
+    // Scale and clamp to avoid overflow wrapping noise
+    int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767; 
+  }
+  
+  const uint8 = new Uint8Array(int16.buffer);
+  const b64 = encode(uint8);
+
+  return {
+    data: b64,
+    mimeType: `audio/pcm;rate=${sampleRate}`,
+  };
+};
+
+/**
  * Downsamples audio buffer to 16kHz for Gemini API compatibility.
- * Simple averaging is used to decimate the signal.
+ * Optimized for Apple hardware native rates (44.1/48kHz).
  */
 export const downsampleTo16k = (buffer: Float32Array, inputRate: number): Float32Array => {
   if (inputRate === 16000) return buffer;
@@ -40,41 +71,17 @@ export const downsampleTo16k = (buffer: Float32Array, inputRate: number): Float3
   const newLength = Math.ceil(buffer.length / ratio);
   const result = new Float32Array(newLength);
   
+  // Linear Interpolation Resampling
   for (let i = 0; i < newLength; i++) {
-    const start = Math.floor(i * ratio);
-    const end = Math.floor((i + 1) * ratio);
-    let sum = 0;
-    let count = 0;
+    const position = i * ratio;
+    const index = Math.floor(position);
+    const fraction = position - index;
     
-    // Simple boxcar filter (averaging) to prevent aliasing
-    for (let j = start; j < end && j < buffer.length; j++) {
-      sum += buffer[j];
-      count++;
+    if (index + 1 < buffer.length) {
+      result[i] = buffer[index] + fraction * (buffer[index + 1] - buffer[index]);
+    } else {
+      result[i] = buffer[index];
     }
-    
-    result[i] = count > 0 ? sum / count : buffer[start]; 
   }
   return result;
-};
-
-export const createPcmBlob = (data: Float32Array, sampleRate: number = 16000): any => {
-  const l = data.length;
-  const int16 = new Int16Array(l);
-  for (let i = 0; i < l; i++) {
-    // Clamp to 32767 to avoid overflow wrapping which causes popping
-    int16[i] = Math.max(-1, Math.min(1, data[i])) * 32767; 
-  }
-  
-  const uint8 = new Uint8Array(int16.buffer);
-  let binary = '';
-  const len = uint8.byteLength;
-  for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(uint8[i]);
-  }
-  const b64 = btoa(binary);
-
-  return {
-    data: b64,
-    mimeType: `audio/pcm;rate=${sampleRate}`,
-  };
 };

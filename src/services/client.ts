@@ -13,7 +13,7 @@ export enum ConnectionState {
 export class MaritimeLiveClient {
   public state: ConnectionState = ConnectionState.DISCONNECTED;
   
-  private session: any = null;
+  private sessionPromise: Promise<any> | null = null;
   private inputContext: AudioContext | null = null;
   private inputSource: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
@@ -61,13 +61,10 @@ export class MaritimeLiveClient {
 
     this.setState(ConnectionState.CONNECTING);
 
-    // CRITICAL: TRUNCATE RAG CONTEXT
-    // Large payloads cause WebSocket failures. Limit to ~25k characters.
     let docsText = "NO DOCUMENTS LOADED. DATABASE IS EMPTY.";
     if (contextDocs.length > 0) {
         const fullText = contextDocs.join('\n\n');
         if (fullText.length > 25000) {
-            console.warn(`[MaritimeLiveClient] Truncating RAG context from ${fullText.length} to 25000 chars.`);
             docsText = fullText.substring(0, 25000) + "\n\n[...SYSTEM NOTE: REMAINING DATA TRUNCATED...]";
         } else {
             docsText = fullText;
@@ -81,7 +78,7 @@ export class MaritimeLiveClient {
     const finalInstruction = baseInstruction + "\n\n" + VISUAL_PROTOCOL;
 
     try {
-      const session = await ai.live.connect({
+      this.sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO], 
@@ -94,12 +91,10 @@ export class MaritimeLiveClient {
         },
         callbacks: {
           onopen: () => {
-            console.log("Session Opened");
             this.startAudioInput().then(() => {
                 if (this.state === ConnectionState.CONNECTING) {
                     this.setState(ConnectionState.CONNECTED);
                 } else {
-                    console.warn("Session closed during audio init. Aborting.");
                     this.cleanupLocalResources();
                 }
             }).catch(e => {
@@ -109,39 +104,26 @@ export class MaritimeLiveClient {
             });
           },
           onmessage: (msg: LiveServerMessage) => this.handleMessage(msg),
-          onclose: (e) => {
-            console.log("Session Closed from Server", e);
-            
-            if (e.reason && (e.reason.toLowerCase().includes('quota') || e.reason.toLowerCase().includes('billing'))) {
-                 this.eventHandlers?.onError?.(new Error(`Billing Quota Exceeded: ${e.reason}`));
-            } else if (e.code === 1009) {
-                 this.eventHandlers?.onError?.(new Error(`Data Payload Too Large. Try reducing RAG documents.`));
-            }
-
+          onclose: () => {
             this.cleanupLocalResources();
             if (this.state !== ConnectionState.DISCONNECTED) {
                this.setState(ConnectionState.DISCONNECTED);
             }
           },
           onerror: (err) => {
-            console.error("Session Error", err);
             this.eventHandlers?.onError?.(new Error(err.message || "Connection disrupted"));
             this.disconnect(); 
           },
         }
       });
       
+      const session = await this.sessionPromise;
       if (this.state === ConnectionState.DISCONNECTING || this.state === ConnectionState.DISCONNECTED) {
-          console.warn("Session connected after disconnect requested. Closing.");
           await session.close();
-          this.session = null;
+          this.sessionPromise = null;
           return;
       }
-      
-      this.session = session;
-
     } catch (error) {
-      console.error("Failed to connect:", error);
       this.setState(ConnectionState.DISCONNECTED);
       this.eventHandlers?.onError?.(error instanceof Error ? error : new Error("Connection failed"));
       throw error; 
@@ -184,59 +166,57 @@ export class MaritimeLiveClient {
   }
 
   private async startAudioInput() {
-    // FIX: Do not force sampleRate here. Let AudioContext use system default (e.g., 44.1k/48k on Mac).
-    this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // FIX: Do NOT force 16kHz here on Mac/iOS. Use the hardware-native rate.
+    this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+      latencyHint: 'interactive'
+    });
     
+    const nativeSampleRate = this.inputContext.sampleRate;
+    console.log(`[MaritimeLiveClient] Hardware Native Rate: ${nativeSampleRate}Hz`);
+
     if (this.inputContext.state === 'suspended') {
       await this.inputContext.resume();
     }
 
-    const actualSampleRate = this.inputContext.sampleRate;
-    console.log(`[Audio] System Input Sample Rate: ${actualSampleRate}`);
-
-    try {
-        // FIX: Do not force sampleRate in constraints. This causes errors on Mac/iOS.
-        this.stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-                channelCount: 1,
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
-    } catch (e) {
-        console.error("Microphone access denied", e);
-        throw e;
-    }
+    this.stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
+    });
     
     if (this.state === ConnectionState.DISCONNECTING || this.state === ConnectionState.DISCONNECTED) {
         this.stream.getTracks().forEach(t => t.stop());
         return; 
     }
 
+    let activeSession: any = null;
+    this.sessionPromise?.then(session => activeSession = session);
+
     this.inputSource = this.inputContext.createMediaStreamSource(this.stream);
-    this.processor = this.inputContext.createScriptProcessor(4096, 1, 1);
+    this.processor = this.inputContext.createScriptProcessor(2048, 1, 1);
     
     this.processor.onaudioprocess = (e) => {
-      if (this.state !== ConnectionState.CONNECTED || !this.session || !this.eventHandlers) return;
+      if (this.state !== ConnectionState.CONNECTED || !activeSession || !this.eventHandlers) return;
 
       const inputData = e.inputBuffer.getChannelData(0);
       
+      // Calculate volume
       let sum = 0;
       for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
       const rms = Math.sqrt(sum / inputData.length);
       this.eventHandlers.onVolumeChange(rms);
 
       try {
-          // FIX: Downsample from system rate (e.g. 48k) to 16k before sending to Gemini
-          const downsampledData = downsampleTo16k(inputData, actualSampleRate);
-          const pcmBlob = createPcmBlob(downsampledData, 16000);
-          this.session.sendRealtimeInput({ media: pcmBlob });
+          // FIX: Manual downsample from Hardware Native Rate to 16kHz API requirement
+          const downsampled = downsampleTo16k(inputData, nativeSampleRate);
+          const pcmBlob = createPcmBlob(downsampled, 16000);
+          activeSession.sendRealtimeInput({ media: pcmBlob });
       } catch (err: any) {
-          if (err.message && (err.message.includes('CLOSING') || err.message.includes('CLOSED'))) {
-          } else {
-             console.warn("Send failed", err);
-             this.disconnect();
+          if (!(err.message && (err.message.includes('CLOSING') || err.message.includes('CLOSED')))) {
+             console.warn("Real-time audio send failed", err);
           }
       }
     };
@@ -247,23 +227,17 @@ export class MaritimeLiveClient {
 
   async disconnect() {
     if (this.state === ConnectionState.DISCONNECTED) return;
-    
     this.setState(ConnectionState.DISCONNECTING);
     this.eventHandlers = null;
-
     await this.cleanupLocalResources();
-
-    if (this.session) {
+    if (this.sessionPromise) {
         try {
-            await this.session.close();
-        } catch (e) {
-            console.error("Error closing session:", e);
-        }
-        this.session = null;
+            const session = await this.sessionPromise;
+            await session.close();
+        } catch (e) {}
+        this.sessionPromise = null;
     }
-
     this.state = ConnectionState.DISCONNECTED;
-    console.log("[MaritimeLiveClient] Disconnected fully.");
   }
 
   private async cleanupLocalResources() {
@@ -287,12 +261,10 @@ export class MaritimeLiveClient {
   }
 
   sendText(text: string) {
-      if (this.state === ConnectionState.CONNECTED && this.session) {
-          try {
-            this.session.sendRealtimeInput({ text });
-          } catch(e) {
-             console.error("Failed to send text", e);
-          }
+      if (this.state === ConnectionState.CONNECTED && this.sessionPromise) {
+          this.sessionPromise.then(session => {
+            try { session.sendRealtimeInput({ text }); } catch(e) {}
+          });
       }
   }
 }
