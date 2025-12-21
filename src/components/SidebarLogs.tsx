@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { 
-  MessageSquare, Database, Info, Loader2, AlertCircle, AlertTriangle 
+  MessageSquare, Database, Info, Loader2, AlertCircle, ShieldCheck, ChevronRight
 } from 'lucide-react';
 import { MessageRole } from '../types';
 import type { ChatMessage } from '../types';
@@ -35,127 +36,125 @@ export const SidebarLogs: React.FC<SidebarLogsProps> = ({
   messagesEndRef
 }) => {
   return (
-    <div className="absolute left-4 top-24 bottom-24 w-80 bg-slate-900/80 backdrop-blur-md rounded-xl border border-slate-800 flex flex-col z-20 shadow-2xl">
-      {/* Toolbar */}
-      <div className="p-4 border-b border-slate-700 flex flex-col gap-3">
+    <div className="absolute left-4 top-24 bottom-28 w-80 bg-slate-900/60 backdrop-blur-xl rounded border border-slate-700/50 flex flex-col z-20 shadow-2xl overflow-hidden corner-bracket text-slate-100">
+      
+      {/* HUD Header */}
+      <div className="p-3 bg-slate-800/40 border-b border-slate-700 flex flex-col gap-2">
         <div className="flex justify-between items-center">
-          <h2 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-              <MessageSquare size={16} /> LOGS
+          <h2 className="text-[10px] font-bold text-cyan-400 tracking-[0.3em] flex items-center gap-2">
+              <MessageSquare size={12} /> INTERACTION_LOG
           </h2>
-        </div>
-        <div className="space-y-2">
-           <button
-             onClick={onToggleRag}
-             className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg border ${
-               ragMode 
-                ? 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400 text-white shadow-cyan-900/40' 
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-300'
-             }`}
-             title={ragMode ? "Disable Knowledge Base" : "Enable Knowledge Base"}
-           >
-              <Database size={14} />
-              {ragMode ? "DISABLE RAG MODE" : "ENABLE RAG MODE"}
-           </button>
-           <button 
-             onClick={onToggleExplanatory}
-             className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg border ${
-               explanatoryMode 
-                 ? 'bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white shadow-indigo-900/40' 
-                 : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-300'
-             }`}
-           >
-             <Info size={14} />
-             {explanatoryMode ? "DISABLE DETAIL MODE" : "ENABLE DETAIL MODE"}
-           </button>
+          <div className="flex items-center gap-1">
+            <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[8px] font-mono text-slate-500 uppercase">Live_Feed</span>
+          </div>
         </div>
       </div>
+
+      {/* Quick Controls HUD */}
+      <div className="p-2 grid grid-cols-2 gap-1 bg-black/20">
+        <button
+          onClick={onToggleRag}
+          className={`px-2 py-1.5 rounded text-[9px] font-bold tracking-tighter flex items-center gap-2 transition-all border ${
+            ragMode 
+             ? 'bg-cyan-600/20 border-cyan-400 text-cyan-300' 
+             : 'bg-slate-800/40 border-slate-700 text-slate-500'
+          }`}
+        >
+           <Database size={10} />
+           RAG: {ragMode ? 'ON' : 'OFF'}
+        </button>
+        <button 
+          onClick={onToggleExplanatory}
+          className={`px-2 py-1.5 rounded text-[9px] font-bold tracking-tighter flex items-center gap-2 transition-all border ${
+            explanatoryMode 
+              ? 'bg-indigo-600/20 border-indigo-400 text-indigo-300' 
+              : 'bg-slate-800/40 border-slate-700 text-slate-500'
+          }`}
+        >
+          <Info size={10} />
+          DETAIL: {explanatoryMode ? 'ON' : 'OFF'}
+        </button>
+      </div>
       
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages Feed */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 font-mono">
         {messages.length === 0 && (
-          <div className="text-center mt-10 text-slate-500 text-sm">
-            <Info size={32} className="mx-auto mb-2 opacity-50" />
-            <p>Systems Online.</p>
-            <p>Connect to Neural Core.</p>
+          <div className="text-center mt-20 opacity-30">
+            <ShieldCheck size={32} className="mx-auto mb-2" />
+            <p className="text-[10px] uppercase tracking-widest">Awaiting Command Input...</p>
           </div>
         )}
+        
         {messages.map((msg) => {
            const isSystem = msg.role === MessageRole.SYSTEM;
-           const isError = isSystem && msg.content.startsWith('Error:');
-           const isWarning = isSystem && msg.content.startsWith('Warning:');
+           const isUser = msg.role === MessageRole.USER;
            return (
-          <div key={msg.id} className={`flex flex-col ${msg.role === MessageRole.USER ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[85%] rounded-lg p-3 text-sm whitespace-pre-wrap ${
-              msg.role === MessageRole.USER 
-                ? 'bg-cyan-900/50 text-cyan-50 border border-cyan-800' 
-                : isError
-                ? 'bg-red-950/40 text-red-400 border border-red-900/50 text-xs font-mono flex items-center gap-2'
-                : isWarning
-                ? 'bg-orange-950/40 text-orange-400 border border-orange-900/50 text-xs font-mono flex items-center gap-2'
+          <div key={msg.id} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+            <div className="flex items-center gap-2 mb-1">
+               <span className={`text-[8px] uppercase tracking-tighter ${isUser ? 'text-cyan-400' : isSystem ? 'text-blue-500' : 'text-slate-400'}`}>
+                 {isUser ? 'Commander' : isSystem ? 'Sys_Kernel' : 'Naval_AI'}
+               </span>
+               <span className="text-[8px] text-slate-600">[{new Date(msg.timestamp).toLocaleTimeString([], { hour12: false })}]</span>
+            </div>
+            <div className={`max-w-[95%] rounded-sm p-2 text-[11px] leading-relaxed border ${
+              isUser 
+                ? 'bg-cyan-500/5 border-cyan-500/20 text-cyan-100 text-right' 
                 : isSystem
-                ? 'bg-blue-950/30 text-blue-400 border border-blue-900/30 text-xs font-mono'
-                : 'bg-slate-800/80 text-slate-200 border border-slate-700'
+                ? 'bg-blue-500/5 border-blue-500/20 text-blue-300 text-[10px]'
+                : 'bg-slate-800/30 border-slate-700/50 text-slate-300'
             }`}>
-              {isError && <AlertCircle size={14} className="shrink-0" />}
-              {isWarning && <AlertTriangle size={14} className="shrink-0" />}
               {msg.content}
             </div>
-            <span className="text-[10px] text-slate-500 mt-1">{new Date(msg.timestamp).toLocaleTimeString()}</span>
           </div>
         )})}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Processing State */}
+      {/* Asset Queue Status */}
       {(isProcessing || assetQueueLength > 0) && (
-        <div className="px-4 py-2 bg-slate-950/50 border-t border-slate-800 flex items-center gap-3">
-           <Loader2 size={16} className="text-cyan-400 animate-spin" />
-           <div className="flex flex-col">
-             <span className="text-xs font-medium text-cyan-300 tracking-wide">
-               {isProcessing ? 'GENERATING ASSETS...' : 'PROCESSING QUEUE...'}
+        <div className="p-2 bg-cyan-950/20 border-t border-cyan-500/20 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <Loader2 size={12} className="text-cyan-400 animate-spin" />
+             <span className="text-[9px] font-bold text-cyan-400 uppercase tracking-widest">
+               Processing_Assets
              </span>
-             {assetQueueLength > 0 && (
-               <span className="text-[10px] text-slate-500">{assetQueueLength} pending</span>
-             )}
            </div>
+           {assetQueueLength > 0 && (
+             <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-[8px] font-mono text-cyan-300">
+               QUEUE: {assetQueueLength}
+             </span>
+           )}
         </div>
       )}
 
-      {/* Asset Proposal Card */}
+      {/* HUD-Style Proposal Card */}
       {proposedAsset && (
-          <div className="p-3 m-3 bg-cyan-950/90 border border-cyan-500/50 rounded-lg animate-fade-in-up shadow-lg">
-            <div className="flex items-start gap-2 mb-2">
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                proposedAsset.reason === 'user_request' ? 'bg-green-500/20 text-green-300' : 'bg-cyan-500/20 text-cyan-300'
-              }`}>
-                {proposedAsset.reason === 'user_request' ? 'REQUESTED' : 'SUGGESTED'}
-              </span>
-              <span className="text-xs text-cyan-100 font-medium uppercase tracking-wide">
-                 {proposedAsset.type} Generation
-              </span>
+          <div className="m-2 p-3 bg-slate-900 border border-cyan-500/40 rounded-sm relative overflow-hidden animate-fade-in-up">
+            <div className="absolute top-0 right-0 p-1">
+               <AlertCircle size={10} className="text-cyan-400" />
             </div>
-            
-            <p className="text-xs text-slate-300 mb-3 leading-relaxed">
-               {proposedAsset.reason === 'user_request' 
-                 ? `You requested a ${proposedAsset.type}. Ready to generate?`
-                 : `I can generate a ${proposedAsset.type} to visualize this. Proceed?`}
-               <br/>
-               <span className="text-[10px] opacity-60 italic">"{proposedAsset.description}"</span>
-            </p>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={onApproveAsset}
-                className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white text-xs py-2 rounded font-medium transition flex justify-center items-center gap-1"
-              >
-                Confirm
-              </button>
-              <button 
-                onClick={onDismissAsset}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded font-medium transition"
-              >
-                Dismiss
-              </button>
+            <div className="flex flex-col gap-2">
+              <span className="text-[9px] font-bold text-cyan-400 uppercase tracking-widest flex items-center gap-1">
+                <ChevronRight size={10} /> {proposedAsset.type}_RECOMMENDED
+              </span>
+              <p className="text-[10px] text-slate-400 italic leading-tight">
+                "{proposedAsset.description}"
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button 
+                  onClick={onApproveAsset}
+                  className="flex-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-100 text-[9px] font-bold py-1.5 border border-cyan-500/50 transition uppercase tracking-wider"
+                >
+                  Authorize
+                </button>
+                <button 
+                  onClick={onDismissAsset}
+                  className="px-3 bg-slate-800/50 hover:bg-slate-700 text-slate-500 hover:text-white text-[9px] py-1.5 border border-slate-700 transition uppercase tracking-wider"
+                >
+                  Abort
+                </button>
+              </div>
             </div>
           </div>
       )}

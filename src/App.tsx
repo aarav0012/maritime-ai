@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { Avatar3D } from './components/Avatar3D';
 import { AssetDisplay } from './components/AssetDisplay';
@@ -26,7 +27,8 @@ export default function App() {
   // --- UI STATE ---
   const [appState, setAppState] = useState<AppState>({
     isListening: false, isSpeaking: false, isProcessing: false,
-    explanatoryMode: false, ragMode: false, activeAssetId: null
+    explanatoryMode: false, ragMode: false, activeAssetId: null,
+    nightMode: localStorage.getItem('maritime_night_mode') === 'true'
   });
   
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
@@ -46,21 +48,20 @@ export default function App() {
     assetQueue, isProcessing, approveProposedAsset, dismissProposedAsset, queueAsset
   } = useAssetManager((text) => addMessage(MessageRole.SYSTEM, text));
 
-  // --- REFS FOR STALE CLOSURE FIX ---
-  // We need a ref to access the latest messages inside the 'handleTurnComplete' callback
-  // because that callback is defined once and passed to the long-lived session client.
   const messagesRef = useRef<ChatMessage[]>([]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // --- EFFECTS & HANDLERS ---
-  
+  // --- EFFECTS ---
   useEffect(() => {
     localStorage.setItem('maritime_admin_open', String(isAdminOpen));
   }, [isAdminOpen]);
 
-  // Sync Hook State to App State for UI
+  useEffect(() => {
+    localStorage.setItem('maritime_night_mode', String(appState.nightMode));
+  }, [appState.nightMode]);
+
   useEffect(() => {
     setAppState(prev => ({
         ...prev,
@@ -71,12 +72,10 @@ export default function App() {
     }));
   }, [connectionState, isProcessing, isSpeaking, activeAssetId]);
 
-  // Auto-Scroll Logs
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, userIsSpeaking, isSpeaking, isProcessing, assetQueue.length]);
+  }, [messages, userIsSpeaking, isSpeaking, isProcessing]);
 
-  // Auto-Connect on Mount
   useEffect(() => {
     if (localStorage.getItem('maritime_autoconnect') === 'true') {
         handleStartSession();
@@ -88,13 +87,8 @@ export default function App() {
     startSession(documents, mode, handleTurnComplete);
   };
 
-  // Background Analysis Logic
-  // This function is called by the session client when a turn completes.
   const handleTurnComplete = async () => {
-    // CRITICAL FIX: Use the ref to get the LATEST messages. 
-    // Using 'messages' state directly here would be stale (empty) due to closure capture.
     const msgs = messagesRef.current; 
-    
     const lastUser = [...msgs].reverse().find(m => m.role === MessageRole.USER);
     const lastModel = [...msgs].reverse().find(m => m.role === MessageRole.ASSISTANT);
 
@@ -106,14 +100,12 @@ export default function App() {
              id: crypto.randomUUID(), query: lastUser.content, timestamp: Date.now(), reason: "Out of Domain"
            }]);
         } else if (result.missingKnowledge) {
-           // Alert Admin to add this data
            setAlerts(prev => [...prev, {
              id: crypto.randomUUID(), query: lastUser.content, timestamp: Date.now(), reason: "Missing Knowledge (RAG)"
            }]);
         }
         
         if (result.assetNeeded && result.assetType !== 'none') {
-            // Auto-generate if explicitly requested, otherwise propose
             if (result.reason === 'user_request') {
                 queueAsset(result.assetType, result.assetDescription, result.reason);
             } else {
@@ -131,17 +123,24 @@ export default function App() {
     const newRag = !appState.ragMode;
     setAppState(prev => ({ ...prev, ragMode: newRag }));
     if (connectionState === ConnectionState.CONNECTED) {
-        addMessage(MessageRole.SYSTEM, newRag ? "Switching to RAG Mode..." : "Disabling RAG Mode...");
+        addMessage(MessageRole.SYSTEM, newRag ? "Kernel: Initializing RAG Context..." : "Kernel: Purging Local Knowledge Base...");
         await stopSession();
         setTimeout(() => handleStartSession(newRag), 500);
     }
   };
 
+  const toggleNightMode = () => {
+    setAppState(prev => ({ ...prev, nightMode: !prev.nightMode }));
+  };
+
   const isConnected = connectionState === ConnectionState.CONNECTED;
 
-  // --- RENDER ---
   return (
-    <div className="flex h-screen w-screen bg-slate-950 text-white overflow-hidden relative">
+    <div className={`flex h-screen w-screen bg-black text-white overflow-hidden relative transition-colors duration-500 ${appState.nightMode ? 'night-ops' : ''}`}>
+      {/* HUD OVERLAY - Scanline & Grain effect */}
+      <div className="scanline" />
+      <div className="grain-overlay" />
+      
       {/* 3D SCENE */}
       <div className="absolute inset-0 z-0">
         <Avatar3D 
@@ -152,19 +151,22 @@ export default function App() {
             : 'idle'
           } 
           audioLevelRef={audioLevelRef}
+          nightMode={appState.nightMode}
         />
       </div>
 
       <Header 
         isConnected={isConnected} 
+        nightMode={appState.nightMode}
         onOpenAdmin={() => setIsAdminOpen(true)} 
+        onToggleNightMode={toggleNightMode}
       />
 
       <SidebarLogs 
         messages={messages}
         ragMode={appState.ragMode}
         explanatoryMode={appState.explanatoryMode}
-        isProcessing={isProcessing}
+        isProcessing={appState.isProcessing}
         assetQueueLength={assetQueue.length}
         proposedAsset={proposedAsset}
         onToggleRag={handleToggleRag}
@@ -179,6 +181,7 @@ export default function App() {
         connectionState={connectionState}
         userIsSpeaking={userIsSpeaking}
         isSpeaking={appState.isSpeaking}
+        nightMode={appState.nightMode}
         onToggleConnection={() => isConnected ? stopSession() : handleStartSession()}
       />
 

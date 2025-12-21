@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect} from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useGLTF, Environment, ContactShadows, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -9,6 +9,7 @@ const DEFAULT_AVATAR_URL = "https://models.readyplayer.me/693ce7a814ff705000efdf
 interface Avatar3DProps {
   state: 'idle' | 'listening' | 'speaking' | 'processing';
   audioLevelRef?: React.MutableRefObject<number>;
+  nightMode?: boolean;
 }
 
 const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audioLevelRef?: React.MutableRefObject<number> }) => {
@@ -79,7 +80,6 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
     }
 
     // 2. STABILIZED BODY & VERTICAL COMPOSITION
-    // Lowered the base from -2.7 to -3.1 to give the head "breathing room" at the top
     scene.position.y = THREE.MathUtils.lerp(scene.position.y, -3.1 + Math.sin(t * 0.4) * 0.01, 0.05);
 
     if (bones.current.head && bones.current.neck) {
@@ -90,7 +90,6 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
         if (state === 'idle') {
             targetHead.set(jitterX, jitterY, 0);
         } else if (state === 'listening') {
-            // A slightly deeper nod for attentiveness
             targetHead.set(0.14 + (Math.sin(t * 1.8) * 0.02), jitterY, 0.03);
         } else if (state === 'speaking') {
             const intensity = Math.min(level * 10, 1);
@@ -104,7 +103,7 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
         bones.current.head.rotation.z = THREE.MathUtils.lerp(bones.current.head.rotation.z, targetHead.z, lerpFactor);
     }
 
-    // 3. REFINED "ELBOWS AT WAIST" GESTURING
+    // 3. REFINED GESTURING
     const animateArm = (arm: THREE.Object3D | null, foreArm: THREE.Object3D | null, hand: THREE.Object3D | null, isRight: boolean) => {
         if (!arm || !foreArm) return;
         const side = isRight ? 1 : -1;
@@ -112,7 +111,6 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
         const baseForeRot = initialRotations.current.get(foreArm.name) || new THREE.Euler();
         const baseHandRot = initialRotations.current.get(hand?.name || '') || new THREE.Euler();
 
-        // DEFAULTS: Keep shoulders stable and broad
         let targetArmX = baseRot.x + 0.1; 
         let targetArmY = baseRot.y;
         let targetArmZ = baseRot.z + (side * 0.1); 
@@ -179,11 +177,10 @@ const Model = ({ url, state, audioLevelRef }: { url: string, state: string, audi
     }
   });
 
-  // Base position set to -3.1 to lower the whole model
   return <primitive object={scene} scale={2.2} position={[0, -3.1, 0]} />;
 };
 
-const ScanningRing = ({ state }: { state: string }) => {
+const ScanningRing = ({ state, nightMode }: { state: string, nightMode?: boolean }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   
@@ -196,49 +193,61 @@ const ScanningRing = ({ state }: { state: string }) => {
     }
   });
 
-  const color = state === 'listening' ? '#ef4444' : state === 'speaking' ? '#22d3ee' : '#3b82f6';
+  const baseColor = nightMode ? '#ff0000' : (state === 'listening' ? '#ef4444' : state === 'speaking' ? '#22d3ee' : '#3b82f6');
 
-  // Lowered the scanning ring to match the new character height
   return (
     <group position={[0, -3.0, 0]} rotation={[-Math.PI/2, 0, 0]}>
       <mesh ref={meshRef}>
         <ringGeometry args={[1.4, 1.5, 64]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} transparent opacity={0.2} />
+        <meshStandardMaterial color={baseColor} emissive={baseColor} emissiveIntensity={nightMode ? 1.0 : 1.5} transparent opacity={0.2} />
       </mesh>
       <mesh ref={ringRef}>
         <ringGeometry args={[1.2, 1.25, 4, 1]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} transparent opacity={0.8} />
+        <meshStandardMaterial color={baseColor} emissive={baseColor} emissiveIntensity={nightMode ? 3.0 : 5} transparent opacity={0.8} />
       </mesh>
     </group>
   );
 };
 
-export const Avatar3D: React.FC<Avatar3DProps> = ({ state, audioLevelRef }) => {
+export const Avatar3D: React.FC<Avatar3DProps> = ({ state, audioLevelRef, nightMode }) => {
+  const primaryLightColor = nightMode ? '#ff0000' : '#3b82f6';
+  const secondaryLightColor = nightMode ? '#ff3300' : '#06b6d4';
+  const bgColor = nightMode ? '#050000' : '#020617';
+
   return (
-    <div className="w-full h-full relative overflow-hidden bg-slate-950">
-      <div className="absolute inset-0 z-10 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(2,6,23,0.8)_100%)]"></div>
+    <div className={`w-full h-full relative overflow-hidden transition-colors duration-500 ${nightMode ? 'bg-[#050000]' : 'bg-slate-950'}`}>
+      <div className={`absolute inset-0 z-10 pointer-events-none ${nightMode ? 'bg-[radial-gradient(circle_at_center,transparent_0%,rgba(20,0,0,0.8)_100%)]' : 'bg-[radial-gradient(circle_at_center,transparent_0%,rgba(2,6,23,0.8)_100%)]'}`}></div>
       
       <Canvas 
-        // Adjusted camera position: pushed slightly back (3.4) and lower (0.15) to center the face perfectly with headroom
         camera={{ position: [0, 0.15, 3.4], fov: 35 }} 
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
-        <color attach="background" args={['#020617']} />
+        <color attach="background" args={[bgColor]} />
         
-        <ambientLight intensity={0.7} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1.5} />
-        <pointLight position={[-5, 2, 2]} intensity={1.8} color="#3b82f6" /> 
-        <pointLight position={[5, 1, -2]} intensity={3} color="#06b6d4" /> 
-        <pointLight position={[0, 4, 2]} intensity={1} color="#ffffff" />
+        <ambientLight intensity={nightMode ? 0.3 : 0.7} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={nightMode ? 0.8 : 1.5} color={nightMode ? '#ff0000' : '#ffffff'} />
+        
+        {/* NEW: Top Focus Light */}
+        <spotLight 
+          position={[0, 5, 0]} 
+          angle={0.4} 
+          penumbra={1} 
+          intensity={nightMode ? 4 : 2} 
+          color={nightMode ? '#ff5555' : '#ffffff'} 
+          castShadow 
+        />
+
+        <pointLight position={[-5, 2, 2]} intensity={nightMode ? 2.5 : 1.8} color={primaryLightColor} /> 
+        <pointLight position={[5, 1, -2]} intensity={nightMode ? 4 : 3} color={secondaryLightColor} /> 
+        <pointLight position={[0, 4, 2]} intensity={nightMode ? 0.5 : 1} color="#ffffff" />
         
         <React.Suspense fallback={null}>
             <Model url={DEFAULT_AVATAR_URL} state={state} audioLevelRef={audioLevelRef} />
-            <ScanningRing state={state} />
-            <Environment preset="city" />
+            <ScanningRing state={state} nightMode={nightMode} />
+            <Environment preset={nightMode ? "night" : "city"} />
         </React.Suspense>
         
-        {/* Adjusted shadow to match lowered position */}
-        <ContactShadows position={[0, -3.1, 0]} opacity={0.5} scale={15} blur={3} far={4.5} />
+        <ContactShadows position={[0, -3.1, 0]} opacity={nightMode ? 0.2 : 0.5} scale={15} blur={3} far={4.5} />
         
         <OrbitControls 
           enableZoom={false} 
@@ -249,8 +258,8 @@ export const Avatar3D: React.FC<Avatar3DProps> = ({ state, audioLevelRef }) => {
       </Canvas>
       
       <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-20">
-        <div className="px-6 py-1.5 bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl overflow-hidden relative">
-            <span className="text-[10px] font-mono tracking-[0.4em] uppercase text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+        <div className={`px-6 py-1.5 bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl overflow-hidden relative transition-all duration-300 ${nightMode ? 'border-red-900/30' : ''}`}>
+            <span className={`text-[10px] font-mono tracking-[0.4em] uppercase transition-colors duration-300 ${nightMode ? 'text-red-500 drop-shadow-[0_0_8px_rgba(255,0,0,0.6)]' : 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'}`}>
                 Neural Core: {state}
             </span>
         </div>

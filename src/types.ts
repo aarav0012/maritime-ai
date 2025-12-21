@@ -1,3 +1,4 @@
+
 export enum MessageRole {
   USER = 'user',
   ASSISTANT = 'assistant',
@@ -24,7 +25,7 @@ export interface GeneratedAsset {
   id: string;
   type: AssetType;
   url?: string;
-  data?: any; // For charts or diagrams (raw string)
+  data?: any; 
   description: string;
   createdAt: number;
 }
@@ -40,7 +41,7 @@ export interface SystemAlert {
   id: string;
   query: string;
   timestamp: number;
-  reason: string; // e.g., "Out of domain" or "Missing knowledge"
+  reason: string; 
 }
 
 export interface AppState {
@@ -50,26 +51,27 @@ export interface AppState {
   explanatoryMode: boolean;
   ragMode: boolean;
   activeAssetId: string | null;
+  nightMode: boolean; // Added for Night Ops
 }
 
-// Chart Data Structure
 export interface ChartDataPoint {
   name: string;
   value: number;
   [key: string]: any;
 }
 
-// Global JSX Declaration to fix IntrinsicElements errors
 declare global {
   namespace JSX {
     interface IntrinsicElements {
       primitive: any;
       mesh: any;
+      group: any;
       ringGeometry: any;
       meshStandardMaterial: any;
       ambientLight: any;
       spotLight: any;
       pointLight: any;
+      color: any;
       [elemName: string]: any;
     }
   }
