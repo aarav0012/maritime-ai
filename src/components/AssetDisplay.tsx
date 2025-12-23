@@ -48,7 +48,7 @@ export const AssetDisplay: React.FC<AssetDisplayProps> = ({ asset, onClose }) =>
   if (!asset) return null;
 
   return (
-    <div className="absolute right-4 top-24 bottom-24 w-[calc(100vw-2rem)] sm:w-[28rem] md:w-[32rem] lg:w-[40rem] bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-xl shadow-2xl flex flex-col z-40 animate-slide-in-right overflow-hidden transition-all duration-300">
+    <div className="absolute right-4 top-32 bottom-24 w-[calc(100vw-2rem)] sm:w-[28rem] md:w-[32rem] lg:w-[40rem] bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-xl shadow-2xl flex flex-col z-40 animate-slide-in-right overflow-hidden transition-all duration-300">
       
       {/* Header */}
       <div className="flex-none p-4 bg-slate-800/50 border-b border-slate-700 flex justify-between items-center backdrop-blur-sm">

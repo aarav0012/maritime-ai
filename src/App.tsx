@@ -193,6 +193,7 @@ export default function App() {
       {isAdminOpen && (
         <AdminPanel 
           documents={documents} alerts={alerts}
+          nightMode={appState.nightMode}
           onUpload={(n, c) => setDocuments(p => [...p, {id: crypto.randomUUID(), name: n, content: c, uploadedAt: Date.now()}])}
           onDelete={(id) => setDocuments(p => p.filter(d => d.id !== id))}
           onClose={() => setIsAdminOpen(false)}
