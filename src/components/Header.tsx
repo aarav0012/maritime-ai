@@ -19,7 +19,7 @@ interface TelemetryData {
 export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAdmin, onToggleNightMode }) => {
   const [time, setTime] = useState(new Date());
   const [telemetry, setTelemetry] = useState<TelemetryData>({
-    lat: 'SEARCHING...',
+    lat: 'ACQUIRING...',
     lng: '---',
     heading: '---°',
     accuracy: 'WAIT'
@@ -30,8 +30,12 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
     
     let watchId: number | null = null;
 
-    if ('geolocation' in navigator) {
-      // Production setting: 15s timeout is standard for "Satellite Grade" fix attempts
+    const startWatching = (highAccuracy: boolean) => {
+      if (!('geolocation' in navigator)) {
+        setTelemetry(prev => ({ ...prev, accuracy: 'NONE' }));
+        return;
+      }
+
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           const { latitude, longitude, heading, accuracy } = position.coords;
@@ -51,25 +55,35 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
             lat: latStr,
             lng: lngStr,
             heading: headingStr,
-            accuracy: accuracy < 30 ? 'HIGH' : accuracy < 150 ? 'MED' : 'LOW'
+            accuracy: accuracy < 50 ? 'HIGH' : accuracy < 200 ? 'MED' : 'LOW'
           });
         },
         (error) => {
-          // Graceful fallback for the "Timeout expired" error
-          console.warn("Telemetry acquisition delayed or denied:", error.message);
-          setTelemetry(prev => ({ 
-            ...prev, 
-            lat: prev.lat === 'SEARCHING...' ? 'SIGNAL_LOST' : prev.lat,
-            accuracy: 'LOSS' 
-          }));
+          console.warn(`Telemetry [${highAccuracy ? 'GPS' : 'IP'}]:`, error.message);
+          
+          // If High Accuracy fails or times out, fallback to Standard Accuracy
+          if (highAccuracy && (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE)) {
+             console.log("Switching to Standard Accuracy Fallback...");
+             if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+             startWatching(false);
+          } else {
+             setTelemetry(prev => ({ 
+               ...prev, 
+               lat: prev.lat === 'ACQUIRING...' ? 'SIGNAL_LOSS' : prev.lat,
+               accuracy: 'LOSS' 
+             }));
+          }
         },
         { 
-          enableHighAccuracy: true, 
-          maximumAge: 10000, // Allow 10s old data to prevent flickering
-          timeout: 15000     // 15s is the sweet spot for avoiding the "Timeout expired" error in most browsers
+          enableHighAccuracy: highAccuracy, 
+          maximumAge: highAccuracy ? 10000 : 60000, 
+          timeout: highAccuracy ? 20000 : 10000 // 20s for GPS, 10s for IP
         }
       );
-    }
+    };
+
+    // Start with High Accuracy (Standard Maritime Protocol)
+    startWatching(true);
 
     return () => {
       clearInterval(timer);
@@ -83,7 +97,6 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
   return (
     <div className="absolute top-0 left-0 right-0 p-5 flex flex-col gap-1.5 z-20 bg-gradient-to-b from-black/95 via-black/40 to-transparent">
       <div className="flex justify-between items-start">
-        {/* Brand & Identity */}
         <div className="flex items-center gap-4">
           <div className={`p-2.5 rounded border transition-all duration-500 ${statusBorder} ${isConnected ? 'animate-pulse' : ''}`}>
             <Activity size={24} className={accentColor} />
@@ -101,7 +114,6 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
           </div>
         </div>
 
-        {/* Tactical Telemetry Bar */}
         <div className={`hidden lg:flex items-center gap-8 px-8 py-3.5 border border-white/5 backdrop-blur-xl transition-all duration-500 rounded-lg ${nightMode ? 'bg-red-950/10 border-red-500/10' : 'bg-slate-900/50'}`}>
            <div className="flex flex-col items-center">
              <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Global_Coords</span>
@@ -130,7 +142,6 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
            </div>
         </div>
 
-        {/* Global Controls */}
         <div className="flex items-center gap-3">
           <button 
             onClick={onToggleNightMode}
@@ -149,7 +160,6 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
         </div>
       </div>
 
-      {/* Connection Quality Trace */}
       <div className={`w-full h-[1px] relative overflow-hidden mt-1 ${nightMode ? 'bg-red-900/10' : 'bg-slate-800/40'}`}>
          <div className={`absolute inset-0 w-1/3 animate-[shimmer_3s_linear_infinite] ${nightMode ? 'bg-gradient-to-r from-transparent via-red-600/50 to-transparent' : 'bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent'}`} />
       </div>
