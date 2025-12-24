@@ -19,19 +19,19 @@ interface TelemetryData {
 export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAdmin, onToggleNightMode }) => {
   const [time, setTime] = useState(new Date());
   const [telemetry, setTelemetry] = useState<TelemetryData>({
-    lat: '00.0000° N',
-    lng: '000.0000° E',
+    lat: 'SEARCHING...',
+    lng: '---',
     heading: '---°',
-    accuracy: 'LOW'
+    accuracy: 'WAIT'
   });
   
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
     
-    // Geolocation Tracking
     let watchId: number | null = null;
 
     if ('geolocation' in navigator) {
+      // Production setting: 15s timeout is standard for "Satellite Grade" fix attempts
       watchId = navigator.geolocation.watchPosition(
         (position) => {
           const { latitude, longitude, heading, accuracy } = position.coords;
@@ -51,13 +51,23 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
             lat: latStr,
             lng: lngStr,
             heading: headingStr,
-            accuracy: accuracy < 20 ? 'HIGH' : accuracy < 100 ? 'MED' : 'LOW'
+            accuracy: accuracy < 30 ? 'HIGH' : accuracy < 150 ? 'MED' : 'LOW'
           });
         },
         (error) => {
-          console.warn("Geolocation access denied or unavailable:", error.message);
+          // Graceful fallback for the "Timeout expired" error
+          console.warn("Telemetry acquisition delayed or denied:", error.message);
+          setTelemetry(prev => ({ 
+            ...prev, 
+            lat: prev.lat === 'SEARCHING...' ? 'SIGNAL_LOST' : prev.lat,
+            accuracy: 'LOSS' 
+          }));
         },
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
+        { 
+          enableHighAccuracy: true, 
+          maximumAge: 10000, // Allow 10s old data to prevent flickering
+          timeout: 15000     // 15s is the sweet spot for avoiding the "Timeout expired" error in most browsers
+        }
       );
     }
 
@@ -67,76 +77,81 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
     };
   }, []);
 
+  const accentColor = nightMode ? 'text-red-500' : 'text-cyan-400';
+  const statusBorder = nightMode ? 'border-red-500/30 bg-red-500/10' : 'border-cyan-500/30 bg-cyan-500/10';
+
   return (
-    <div className="absolute top-0 left-0 right-0 p-5 flex flex-col gap-1.5 z-20 bg-gradient-to-b from-black/90 via-black/40 to-transparent">
+    <div className="absolute top-0 left-0 right-0 p-5 flex flex-col gap-1.5 z-20 bg-gradient-to-b from-black/95 via-black/40 to-transparent">
       <div className="flex justify-between items-start">
         {/* Brand & Identity */}
         <div className="flex items-center gap-4">
-          <div className={`p-2 rounded border transition-all duration-300 ${nightMode ? 'border-red-500/30 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-cyan-500/30 bg-cyan-500/10 shadow-[0_0_10px_rgba(34,211,238,0.2)]'} ${isConnected ? 'animate-pulse' : ''}`}>
-            <Activity size={24} className={nightMode ? 'text-red-500' : 'text-cyan-400'} />
+          <div className={`p-2.5 rounded border transition-all duration-500 ${statusBorder} ${isConnected ? 'animate-pulse' : ''}`}>
+            <Activity size={24} className={accentColor} />
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-[0.2em] text-white uppercase font-mono leading-none">
-              Maritime <span className={nightMode ? 'text-red-500' : 'text-cyan-400'}>AI</span> Commander
+              Maritime <span className={accentColor}>AI</span> Commander
             </h1>
-            <div className="flex items-center gap-2 mt-1.5">
-               <span className={`w-2 h-2 rounded-full animate-pulse ${nightMode ? 'bg-red-500' : 'bg-cyan-400'}`} />
-               <p className="text-[10px] text-slate-400 uppercase font-mono tracking-[0.2em] font-bold">
-                 System: Ready // {nightMode ? 'Mode: Night Watch' : 'Core: Connected'}
+            <div className="flex items-center gap-2 mt-2">
+               <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`} />
+               <p className="text-[10px] text-slate-400 uppercase font-mono tracking-[0.25em] font-bold">
+                 Fleet_ID: V-102 // {nightMode ? 'Tactical Night View' : 'Standard Bridge Ops'}
                </p>
             </div>
           </div>
         </div>
 
-        {/* Telemetry Display (Desktop Only) */}
-        <div className={`hidden lg:flex items-center gap-8 px-8 py-3 border-x border-slate-700/50 backdrop-blur-md transition-all duration-300 rounded ${nightMode ? 'bg-red-950/10' : 'bg-slate-900/50'}`}>
+        {/* Tactical Telemetry Bar */}
+        <div className={`hidden lg:flex items-center gap-8 px-8 py-3.5 border border-white/5 backdrop-blur-xl transition-all duration-500 rounded-lg ${nightMode ? 'bg-red-950/10 border-red-500/10' : 'bg-slate-900/50'}`}>
            <div className="flex flex-col items-center">
-             <span className="text-[10px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1">Position</span>
-             <span className="text-[13px] font-mono text-cyan-100 uppercase font-bold">{telemetry.lat}, {telemetry.lng}</span>
+             <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Global_Coords</span>
+             <span className="text-[13px] font-mono text-white uppercase font-bold tabular-nums">{telemetry.lat}, {telemetry.lng}</span>
            </div>
-           <div className="flex flex-col items-center border-l border-slate-700/50 pl-8">
-             <span className="text-[10px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1">Heading</span>
+           <div className="flex flex-col items-center border-l border-white/5 pl-8">
+             <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Relative_Hdg</span>
              <div className="flex items-center gap-2">
-               <Compass size={14} className={nightMode ? 'text-red-500' : 'text-cyan-400'} />
-               <span className="text-[13px] font-mono text-cyan-100 uppercase font-bold">{telemetry.heading}</span>
+               <Compass size={14} className={accentColor} />
+               <span className="text-[13px] font-mono text-white uppercase font-bold">{telemetry.heading}</span>
              </div>
            </div>
-           <div className="flex flex-col items-center border-l border-slate-700/50 pl-8">
-             <span className="text-[10px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1">Fix</span>
+           <div className="flex flex-col items-center border-l border-white/5 pl-8">
+             <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Signal_Fix</span>
              <div className="flex items-center gap-2">
-               <Signal size={14} className={nightMode ? 'text-red-500' : (telemetry.accuracy === 'HIGH' ? 'text-emerald-400' : 'text-yellow-500')} />
-               <span className="text-[13px] font-mono text-cyan-100 uppercase font-bold">{telemetry.accuracy}</span>
+               <Signal size={14} className={telemetry.accuracy === 'HIGH' ? 'text-emerald-400' : telemetry.accuracy === 'LOSS' ? 'text-red-500' : 'text-yellow-500'} />
+               <span className="text-[13px] font-mono text-white uppercase font-bold">{telemetry.accuracy}</span>
              </div>
            </div>
-           <div className="flex flex-col items-center border-l border-slate-700/50 pl-8">
-             <span className="text-[10px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1">Vessel Time</span>
+           <div className="flex flex-col items-center border-l border-white/5 pl-8">
+             <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Zulu_Time</span>
              <div className="flex items-center gap-2">
                <Clock size={14} className="text-slate-500" />
-               <span className="text-[13px] font-mono text-white font-bold tracking-wider">{time.toLocaleTimeString([], { hour12: false })}</span>
+               <span className="text-[13px] font-mono text-white font-bold tracking-wider tabular-nums">{time.toLocaleTimeString([], { hour12: false })}</span>
              </div>
            </div>
         </div>
 
-        {/* System Controls */}
-        <div className="flex items-center gap-4">
+        {/* Global Controls */}
+        <div className="flex items-center gap-3">
           <button 
             onClick={onToggleNightMode}
-            className={`p-3 rounded border border-slate-700 backdrop-blur-md transition-all ${nightMode ? 'bg-red-950/40 border-red-500/50 text-red-500' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'}`}
+            className={`p-3.5 rounded-lg border border-slate-700/50 backdrop-blur-md transition-all hover:scale-105 active:scale-95 ${nightMode ? 'bg-red-950/40 border-red-500/50 text-red-500' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'}`}
+            title="Toggle Tactical Mode"
           >
-            {nightMode ? <Sun size={20} /> : <Moon size={20} />}
+            {nightMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <button 
             onClick={onOpenAdmin}
-            className={`p-3 rounded border border-slate-700 backdrop-blur-md transition-all ${nightMode ? 'bg-red-950/20 text-red-700 border-red-900/50' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'}`}
+            className={`p-3.5 rounded-lg border border-slate-700/50 backdrop-blur-md transition-all hover:scale-105 active:scale-95 ${nightMode ? 'bg-red-950/20 text-red-700 border-red-900/50' : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700 hover:text-white'}`}
+            title="System Configuration"
           >
-            <Settings size={20} />
+            <Settings size={18} />
           </button>
         </div>
       </div>
 
-      {/* Progress Line */}
-      <div className={`w-full h-[2px] relative overflow-hidden transition-colors mt-1 ${nightMode ? 'bg-red-900/20' : 'bg-slate-800'}`}>
-         <div className={`absolute inset-0 w-1/4 animate-[shimmer_4s_linear_infinite] ${nightMode ? 'bg-gradient-to-r from-transparent via-red-600 to-transparent' : 'bg-gradient-to-r from-transparent via-cyan-400 to-transparent'}`} />
+      {/* Connection Quality Trace */}
+      <div className={`w-full h-[1px] relative overflow-hidden mt-1 ${nightMode ? 'bg-red-900/10' : 'bg-slate-800/40'}`}>
+         <div className={`absolute inset-0 w-1/3 animate-[shimmer_3s_linear_infinite] ${nightMode ? 'bg-gradient-to-r from-transparent via-red-600/50 to-transparent' : 'bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent'}`} />
       </div>
     </div>
   );
