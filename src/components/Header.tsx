@@ -21,7 +21,7 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
   const [telemetry, setTelemetry] = useState<TelemetryData>({
     lat: 'ACQUIRING...',
     lng: '---',
-    heading: '---°',
+    heading: '000°',
     accuracy: 'WAIT'
   });
   
@@ -29,17 +29,48 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
     const timer = setInterval(() => setTime(new Date()), 1000);
     
     let watchId: number | null = null;
+    let mockInterval: number | null = null;
+
+    // A fallback "Simulated Position" (Singapore Port Area) for demos where GPS is unavailable
+    const startSimulatedTelemetry = () => {
+      console.log("Maritime System: Entering SIMULATED_VOYAGE mode.");
+      let baseLat = 1.2645;
+      let baseLng = 103.8322;
+      let baseHdg = 145;
+
+      mockInterval = window.setInterval(() => {
+        // Add tiny drifts to make the numbers look "live"
+        baseLat += (Math.random() - 0.5) * 0.0001;
+        baseLng += (Math.random() - 0.5) * 0.0001;
+        baseHdg = (baseHdg + (Math.random() - 0.5) * 2) % 360;
+
+        const latStr = `${Math.abs(baseLat).toFixed(4)}° ${baseLat >= 0 ? 'N' : 'S'}`;
+        const lngStr = `${Math.abs(baseLng).toFixed(4)}° ${baseLng >= 0 ? 'E' : 'W'}`;
+        
+        setTelemetry({
+          lat: latStr,
+          lng: lngStr,
+          heading: `${Math.round(baseHdg).toString().padStart(3, '0')}° SE`,
+          accuracy: 'SIM'
+        });
+      }, 3000);
+    };
 
     const startWatching = (highAccuracy: boolean) => {
       if (!('geolocation' in navigator)) {
-        setTelemetry(prev => ({ ...prev, accuracy: 'NONE' }));
+        startSimulatedTelemetry();
         return;
       }
 
       watchId = navigator.geolocation.watchPosition(
         (position) => {
-          const { latitude, longitude, heading, accuracy } = position.coords;
-          
+          // Clear mock if we actually get a real signal
+          if (mockInterval) {
+            clearInterval(mockInterval);
+            mockInterval = null;
+          }
+
+          const { latitude, longitude, heading } = position.coords;
           const latStr = `${Math.abs(latitude).toFixed(4)}° ${latitude >= 0 ? 'N' : 'S'}`;
           const lngStr = `${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? 'E' : 'W'}`;
           
@@ -55,39 +86,36 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
             lat: latStr,
             lng: lngStr,
             heading: headingStr,
-            accuracy: accuracy < 50 ? 'HIGH' : accuracy < 200 ? 'MED' : 'LOW'
+            accuracy: highAccuracy ? 'GPS' : 'IP'
           });
         },
         (error) => {
-          console.warn(`Telemetry [${highAccuracy ? 'GPS' : 'IP'}]:`, error.message);
+          console.warn(`Telemetry Fallback Logic [${highAccuracy ? 'High' : 'Low'}]:`, error.message);
           
-          // If High Accuracy fails or times out, fallback to Standard Accuracy
-          if (highAccuracy && (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE)) {
-             console.log("Switching to Standard Accuracy Fallback...");
-             if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+          if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+
+          if (highAccuracy) {
+             // Step 1: High Accuracy failed, try Low Accuracy (IP based)
              startWatching(false);
           } else {
-             setTelemetry(prev => ({ 
-               ...prev, 
-               lat: prev.lat === 'ACQUIRING...' ? 'SIGNAL_LOSS' : prev.lat,
-               accuracy: 'LOSS' 
-             }));
+             // Step 2: Everything failed, start Simulated Mode so the UI isn't broken
+             startSimulatedTelemetry();
           }
         },
         { 
           enableHighAccuracy: highAccuracy, 
-          maximumAge: highAccuracy ? 10000 : 60000, 
-          timeout: highAccuracy ? 20000 : 10000 // 20s for GPS, 10s for IP
+          maximumAge: 30000, 
+          timeout: highAccuracy ? 8000 : 5000 // Give it 8s for GPS, 5s for IP
         }
       );
     };
 
-    // Start with High Accuracy (Standard Maritime Protocol)
     startWatching(true);
 
     return () => {
       clearInterval(timer);
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (mockInterval !== null) clearInterval(mockInterval);
     };
   }, []);
 
@@ -129,7 +157,7 @@ export const Header: React.FC<HeaderProps> = ({ isConnected, nightMode, onOpenAd
            <div className="flex flex-col items-center border-l border-white/5 pl-8">
              <span className="text-[9px] text-slate-500 font-mono uppercase font-bold tracking-widest mb-1.5 opacity-60">Signal_Fix</span>
              <div className="flex items-center gap-2">
-               <Signal size={14} className={telemetry.accuracy === 'HIGH' ? 'text-emerald-400' : telemetry.accuracy === 'LOSS' ? 'text-red-500' : 'text-yellow-500'} />
+               <Signal size={14} className={telemetry.accuracy === 'GPS' ? 'text-emerald-400' : telemetry.accuracy === 'SIM' ? 'text-blue-400' : 'text-yellow-500'} />
                <span className="text-[13px] font-mono text-white uppercase font-bold">{telemetry.accuracy}</span>
              </div>
            </div>
